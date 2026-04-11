@@ -33,7 +33,12 @@ export async function generateBriefingScript(
   tokensOutput: number;
 }> {
   const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({ model: MODEL });
+  const model = genAI.getGenerativeModel({
+    model: MODEL,
+    generationConfig: {
+      responseMimeType: "application/json",
+    },
+  });
 
   const payload = stories.map((s) => ({
     title: s.title,
@@ -117,12 +122,76 @@ ${JSON.stringify(payload)}`;
 
 function parseJsonFromModel(text: string): unknown {
   const fence = /```(?:json)?\s*([\s\S]*?)```/i.exec(text);
-  const candidate = fence?.[1]?.trim() ?? text;
-  const brace = /\{[\s\S]*\}/.exec(candidate);
-  if (!brace) {
+  const candidate = fence?.[1]?.trim() ?? text.trim();
+
+  const attempts = [
+    candidate,
+    extractFirstJsonObject(candidate),
+    stripTrailingCommas(extractFirstJsonObject(candidate)),
+  ].filter((value): value is string => Boolean(value));
+
+  for (const attempt of attempts) {
+    try {
+      return JSON.parse(attempt) as unknown;
+    } catch {
+      // Try the next fallback.
+    }
+  }
+
+  if (!extractFirstJsonObject(candidate)) {
     throw new Error("Gemini script generation returned no JSON");
   }
-  return JSON.parse(brace[0]) as unknown;
+
+  throw new Error("Gemini script generation returned invalid JSON");
+}
+
+function extractFirstJsonObject(text: string): string | null {
+  const start = text.indexOf("{");
+  if (start === -1) return null;
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let i = start; i < text.length; i++) {
+    const char = text[i];
+    if (!char) continue;
+
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === '"') {
+      inString = true;
+      continue;
+    }
+
+    if (char === "{") {
+      depth += 1;
+      continue;
+    }
+
+    if (char === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        return text.slice(start, i + 1);
+      }
+    }
+  }
+
+  return null;
+}
+
+function stripTrailingCommas(text: string | null): string | null {
+  if (!text) return null;
+  return text.replace(/,\s*([}\]])/g, "$1");
 }
 
 function sanitizeSsml(ssml: string | undefined, transcript: string): string {
