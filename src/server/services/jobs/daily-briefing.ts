@@ -286,7 +286,7 @@ export async function runDailyBriefingPipeline(): Promise<RunDailyBriefingResult
     tokensOutputTotal += tsOut;
 
     const { audioBuffer, characterCount, fileExtension, contentType } =
-      await synthesizeChirpHd(gcpJson, ssml);
+      await synthesizeChirpHd(gcpJson, ssml, { briefingDate });
     ttsChars = characterCount;
 
     const briefingRow = await db.dailyBriefing.findUnique({

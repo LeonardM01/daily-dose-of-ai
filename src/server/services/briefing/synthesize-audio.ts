@@ -1,6 +1,20 @@
 import { TextToSpeechClient } from "@google-cloud/text-to-speech";
 
-const DEFAULT_VOICE = "en-US-Chirp3-HD-Algenib";
+const VOICE_POOL = [
+  "en-US-Chirp3-HD-Alnilam",
+  "en-US-Chirp3-HD-Aoede",
+  "en-US-Chirp3-HD-Despina",
+  "en-US-Chirp3-HD-Charon",
+  "en-US-Chirp3-HD-Kore",
+  "en-US-Chirp3-HD-Iapetus",
+  "en-US-Chirp3-HD-Orus",
+] as const;
+
+function getVoiceForDate(date: Date = new Date()): string {
+  const dayIndex = Math.floor(date.getTime() / 86_400_000);
+  return VOICE_POOL[dayIndex % VOICE_POOL.length]!;
+}
+
 const SYNC_TTS_LIMIT_BYTES = 5000;
 const TARGET_CHUNK_BYTES = 4200;
 
@@ -20,11 +34,13 @@ export async function synthesizeChirpHd(
   ssml: string,
   options?: {
     voiceName?: string;
+    briefingDate?: Date;
   },
 ): Promise<SynthesizeResult> {
   const normalizedJson = serviceAccountJson.trim();
   const credentials = parseServiceAccountJson(normalizedJson);
-  const voiceName = options?.voiceName ?? process.env.TTS_VOICE_NAME ?? DEFAULT_VOICE;
+  const voiceName =
+    options?.voiceName ?? process.env.TTS_VOICE_NAME ?? getVoiceForDate(options?.briefingDate);
 
   const characterCount = ssml.length;
   const client = new TextToSpeechClient({ credentials });

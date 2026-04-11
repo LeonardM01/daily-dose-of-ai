@@ -20,6 +20,20 @@ export type StoryInput = {
 };
 
 const TARGET_SCRIPT_MAX_CHARS = 14000;
+type PromptStoryPayload = {
+  title: string;
+  url: string;
+  source: string;
+  sources: string[];
+  note: string;
+  excerpt: string;
+  corroboratingCoverage: Array<{
+    articleId: string;
+    sourceName: string;
+    title: string;
+    url: string;
+  }>;
+};
 
 export async function generateBriefingScript(
   apiKey: string,
@@ -33,14 +47,9 @@ export async function generateBriefingScript(
   tokensOutput: number;
 }> {
   const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({
-    model: MODEL,
-    generationConfig: {
-      responseMimeType: "application/json",
-    },
-  });
+  const model = genAI.getGenerativeModel({ model: MODEL });
 
-  const payload = stories.map((s) => ({
+  const payload: PromptStoryPayload[] = stories.map((s) => ({
     title: s.title,
     url: s.url,
     source: s.sourceName,
@@ -95,103 +104,113 @@ SSML requirements for Chirp 3 HD:
 Stories JSON:
 ${JSON.stringify(payload)}`;
 
-  const result = await model.generateContent(prompt);
-  const text = result.response.text().trim();
-  const usage = result.response.usageMetadata;
-  const tokensInput = usage?.promptTokenCount ?? 0;
-  const tokensOutput = usage?.candidatesTokenCount ?? 0;
-
   const title = `Daily briefing — ${dateLabel}`;
-  const parsed = parseJsonFromModel(text) as {
-    transcript?: string;
-    ssml?: string;
-  };
+  const transcriptResult = await generateTranscript(model, prompt);
+  let tokensInput = transcriptResult.tokensInput;
+  let tokensOutput = transcriptResult.tokensOutput;
+  let script = transcriptResult.script;
 
-  let script = (parsed.transcript ?? "").trim();
   if (!script) {
     throw new Error("Gemini script generation returned no transcript");
   }
+
   if (script.length > TARGET_SCRIPT_MAX_CHARS) {
     script = script.slice(0, TARGET_SCRIPT_MAX_CHARS - 3) + "...";
   }
 
-  const ssml = sanitizeSsml(parsed.ssml, script);
+  let ssml: string;
+  try {
+    const ssmlResult = await generateSsmlFromTranscript(model, script, dateLabel);
+    tokensInput += ssmlResult.tokensInput;
+    tokensOutput += ssmlResult.tokensOutput;
+    ssml = sanitizeSsml(ssmlResult.ssml, script);
+  } catch (error) {
+    ssml = buildFallbackSsml(script);
+    console.warn("[briefing] falling back to deterministic SSML generation", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 
   return { title, script, ssml, tokensInput, tokensOutput };
 }
 
-function parseJsonFromModel(text: string): unknown {
-  const fence = /```(?:json)?\s*([\s\S]*?)```/i.exec(text);
-  const candidate = fence?.[1]?.trim() ?? text.trim();
+async function generateTranscript(
+  model: ReturnType<GoogleGenerativeAI["getGenerativeModel"]>,
+  prompt: string,
+): Promise<{ script: string; tokensInput: number; tokensOutput: number }> {
+  const transcriptPrompt = `${prompt}
 
-  const attempts = [
-    candidate,
-    extractFirstJsonObject(candidate),
-    stripTrailingCommas(extractFirstJsonObject(candidate)),
-  ].filter((value): value is string => Boolean(value));
+Return ONLY the plain spoken transcript text. Do not return JSON. Do not return SSML. Do not use markdown.`;
 
-  for (const attempt of attempts) {
+  const result = await model.generateContent(transcriptPrompt);
+  const text = cleanTranscriptResponse(result.response.text());
+  const usage = result.response.usageMetadata;
+
+  if (!text) {
+    throw new Error("Gemini transcript fallback returned empty text");
+  }
+
+  return {
+    script: text,
+    tokensInput: usage?.promptTokenCount ?? 0,
+    tokensOutput: usage?.candidatesTokenCount ?? 0,
+  };
+}
+
+async function generateSsmlFromTranscript(
+  model: ReturnType<GoogleGenerativeAI["getGenerativeModel"]>,
+  transcript: string,
+  dateLabel: string,
+): Promise<{ ssml: string; tokensInput: number; tokensOutput: number }> {
+  const prompt = `Convert this completed Daily Dose of AI transcript into production-safe SSML for Google Cloud Text-to-Speech Chirp 3 HD.
+Date for this episode: ${dateLabel}
+
+Return ONLY SSML wrapped in a single <speak> root. Do not return JSON. Do not return markdown. Do not add commentary before or after the SSML.
+
+Requirements:
+- Preserve the meaning and ordering of the transcript.
+- Keep the wording as close to the transcript as possible.
+- Use ONLY this safe subset of tags:
+  - <speak>
+  - <p>
+  - <s>
+  - <break time="...ms"/>
+  - <say-as interpret-as="characters|ordinal|cardinal|date|time">
+  - <sub alias="...">
+  - <prosody rate="slow|medium|fast" pitch="low|medium|high" volume="soft|medium|loud">
+- Do NOT use any other SSML tags.
+- Specifically DO NOT use: <audio>, <voice>, <lang>, <emphasis>, <mark>, <par>, <seq>.
+- Use <break> sparingly at section transitions.
+- Use <prosody> only on short spans, not entire paragraphs.
+- Use <say-as> only where it clearly improves pronunciation.
+
+Transcript:
+${transcript}`;
+
+  const result = await model.generateContent(prompt);
+  const usage = result.response.usageMetadata;
+
+  return {
+    ssml: result.response.text().trim(),
+    tokensInput: usage?.promptTokenCount ?? 0,
+    tokensOutput: usage?.candidatesTokenCount ?? 0,
+  };
+}
+
+function cleanTranscriptResponse(text: string): string {
+  let normalized = text.trim();
+  normalized = normalized.replace(/```(?:text|markdown)?/gi, "").replace(/```/g, "");
+  normalized = normalized.trim();
+
+  if (normalized.startsWith('"') && normalized.endsWith('"')) {
     try {
-      return JSON.parse(attempt) as unknown;
+      normalized = JSON.parse(normalized) as string;
     } catch {
-      // Try the next fallback.
+      // Keep original text if it is not a valid JSON string literal.
     }
   }
 
-  if (!extractFirstJsonObject(candidate)) {
-    throw new Error("Gemini script generation returned no JSON");
-  }
-
-  throw new Error("Gemini script generation returned invalid JSON");
-}
-
-function extractFirstJsonObject(text: string): string | null {
-  const start = text.indexOf("{");
-  if (start === -1) return null;
-
-  let depth = 0;
-  let inString = false;
-  let escaped = false;
-
-  for (let i = start; i < text.length; i++) {
-    const char = text[i];
-    if (!char) continue;
-
-    if (inString) {
-      if (escaped) {
-        escaped = false;
-      } else if (char === "\\") {
-        escaped = true;
-      } else if (char === '"') {
-        inString = false;
-      }
-      continue;
-    }
-
-    if (char === '"') {
-      inString = true;
-      continue;
-    }
-
-    if (char === "{") {
-      depth += 1;
-      continue;
-    }
-
-    if (char === "}") {
-      depth -= 1;
-      if (depth === 0) {
-        return text.slice(start, i + 1);
-      }
-    }
-  }
-
-  return null;
-}
-
-function stripTrailingCommas(text: string | null): string | null {
-  if (!text) return null;
-  return text.replace(/,\s*([}\]])/g, "$1");
+  return normalized.trim();
 }
 
 function sanitizeSsml(ssml: string | undefined, transcript: string): string {
