@@ -1,0 +1,754 @@
+"use client";
+
+import { useRouter } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
+
+import {
+  type BriefingTrack,
+  useBriefingAudio,
+} from "~/app/_components/briefing-audio-provider";
+import { useListeningProgress } from "~/app/_components/use-listening-progress";
+import { getSafeHttpUrl } from "~/lib/safe-external-url";
+import { api } from "~/trpc/react";
+
+/* ------------------------------------------------------------------ */
+/*  Idle card (not yet playing) – shown inline on dashboard / detail  */
+/* ------------------------------------------------------------------ */
+
+export function BriefingAudioPlayerSlot({
+  track,
+  className = "",
+}: {
+  track: BriefingTrack;
+  className?: string;
+}) {
+  const { currentTrack, playTrack, showInlinePlayer, hideInlinePlayer } =
+    useBriefingAudio();
+  const router = useRouter();
+
+  const isActive = currentTrack?.id === track.id;
+
+  useEffect(() => {
+    if (!isActive) return;
+    showInlinePlayer(track.id);
+    return () => hideInlinePlayer(track.id);
+  }, [hideInlinePlayer, isActive, showInlinePlayer, track.id]);
+
+  if (isActive) {
+    return (
+      <section
+        className={`overflow-hidden rounded-[28px] border border-violet-500/40 bg-neutral-950 text-white shadow-2xl ${className}`.trim()}
+      >
+        <div className="bg-[radial-gradient(circle_at_top_left,_rgba(139,92,246,0.38),_transparent_34%),linear-gradient(135deg,rgba(23,23,23,1),rgba(10,10,10,1))] px-6 py-5">
+          <div className="flex items-center gap-4">
+            <div className="relative flex h-10 w-10 shrink-0 items-center justify-center">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-violet-500 opacity-20" />
+              <span className="relative inline-flex h-3 w-3 rounded-full bg-violet-400" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-violet-300">
+                Now playing
+              </p>
+              <p className="mt-1 truncate font-semibold">{track.title}</p>
+            </div>
+            <p className="shrink-0 text-sm text-neutral-400">
+              Controls in the bottom bar
+            </p>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section
+      role="button"
+      tabIndex={0}
+      onClick={() => router.push(track.detailHref)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          router.push(track.detailHref);
+        }
+      }}
+      className={`cursor-pointer overflow-hidden rounded-[28px] border border-neutral-800 bg-neutral-950 text-white shadow-2xl transition hover:border-neutral-700 ${className}`.trim()}
+    >
+      <div className="bg-[radial-gradient(circle_at_top_left,_rgba(139,92,246,0.35),_transparent_40%),linear-gradient(135deg,rgba(23,23,23,1),rgba(10,10,10,1))] p-6">
+        <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+          <div className="max-w-xl">
+            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-violet-300">
+              Daily briefing
+            </p>
+            <h3 className="mt-3 text-xl font-semibold tracking-tight">
+              {track.title}
+            </h3>
+            <p className="mt-2 text-sm text-neutral-300">
+              {track.publishedAtLabel}
+              {track.durationSeconds != null &&
+                ` • ${formatTime(track.durationSeconds)}`}
+            </p>
+            <p className="mt-3 max-w-lg text-sm text-neutral-400">
+              Press play to listen, or tap the card to view transcript &amp;
+              sources.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              playTrack(track);
+            }}
+            className="inline-flex items-center justify-center gap-3 rounded-full bg-white px-5 py-3 font-medium text-neutral-950 transition hover:bg-neutral-200"
+          >
+            <PlayIcon className="h-4 w-4" />
+            Play briefing
+          </button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Persistent bottom bar player (Spotify-style)                      */
+/* ------------------------------------------------------------------ */
+
+export function PlayerBottomSpacer() {
+  const { currentTrack } = useBriefingAudio();
+  if (!currentTrack) return null;
+  return <div className="h-16" />;
+}
+
+export function PersistentBriefingMiniPlayer() {
+  const { currentTrack } = useBriefingAudio();
+
+  if (!currentTrack) return null;
+
+  return <BottomBarPlayer />;
+}
+
+function BottomBarPlayer() {
+  const {
+    currentTrack,
+    isPlaying,
+    currentTime,
+    duration,
+    volume,
+    isMuted,
+    togglePlay,
+    seekBy,
+    setVolume,
+    toggleMute,
+    closeTrack,
+  } = useBriefingAudio();
+
+  const [expanded, setExpanded] = useState(false);
+  const [showVolume, setShowVolume] = useState(false);
+  const volumeRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!showVolume) return;
+    const onClick = (e: MouseEvent) => {
+      if (volumeRef.current && !volumeRef.current.contains(e.target as Node)) {
+        setShowVolume(false);
+      }
+    };
+    document.addEventListener("mousedown", onClick);
+    return () => document.removeEventListener("mousedown", onClick);
+  }, [showVolume]);
+
+  useEffect(() => {
+    if (expanded) {
+      document.body.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "";
+    }
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [expanded]);
+
+  if (!currentTrack) return null;
+
+  const displayDuration =
+    duration > 0 ? duration : (currentTrack.durationSeconds ?? 0);
+  const safeDuration = Math.max(displayDuration, 1);
+  const progressPercent = Math.min((currentTime / safeDuration) * 100, 100);
+
+  if (expanded) {
+    return (
+      <ExpandedPlayer
+        onCollapse={() => setExpanded(false)}
+        safeDuration={safeDuration}
+      />
+    );
+  }
+
+  return (
+    <div className="fixed inset-x-0 bottom-0 z-50">
+      <div className="h-1 bg-neutral-800">
+        <div
+          className="h-full bg-violet-500 transition-[width] duration-300"
+          style={{ width: `${progressPercent}%` }}
+        />
+      </div>
+
+      <div className="border-t border-neutral-800 bg-neutral-950/95 backdrop-blur-xl">
+        <div className="mx-auto flex max-w-5xl items-center gap-3 px-4 py-2.5">
+          <button
+            type="button"
+            onClick={() => setExpanded(true)}
+            className="min-w-0 flex-1 text-left"
+          >
+            <p className="truncate text-sm font-semibold text-white">
+              {currentTrack.title}
+            </p>
+            <p className="mt-0.5 text-xs text-neutral-400">
+              {formatTime(currentTime)} / {formatTime(displayDuration)}
+            </p>
+          </button>
+
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => seekBy(-10)}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-full text-neutral-400 transition hover:bg-white/10 hover:text-white"
+              aria-label="Rewind 10 seconds"
+            >
+              <BackIcon className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={togglePlay}
+              className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-white text-neutral-950 transition hover:bg-neutral-200"
+              aria-label={isPlaying ? "Pause" : "Play"}
+            >
+              {isPlaying ? (
+                <PauseIcon className="h-4 w-4" />
+              ) : (
+                <PlayIcon className="ml-0.5 h-4 w-4" />
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={() => seekBy(10)}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-full text-neutral-400 transition hover:bg-white/10 hover:text-white"
+              aria-label="Skip forward 10 seconds"
+            >
+              <ForwardIcon className="h-4 w-4" />
+            </button>
+          </div>
+
+          <div className="relative hidden sm:block" ref={volumeRef}>
+            <button
+              type="button"
+              onClick={() => setShowVolume((s) => !s)}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-full text-neutral-400 transition hover:bg-white/10 hover:text-white"
+              aria-label="Volume"
+            >
+              <VolumeIcon muted={isMuted || volume === 0} className="h-4 w-4" />
+            </button>
+            {showVolume && (
+              <div className="absolute bottom-full right-0 mb-2 flex w-10 flex-col items-center rounded-xl border border-neutral-700 bg-neutral-900 px-2 py-4 shadow-xl">
+                <input
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={isMuted ? 0 : volume}
+                  onChange={(e) => setVolume(Number(e.target.value))}
+                  className="h-24 w-1.5 cursor-pointer appearance-none rounded-full bg-white/15 accent-violet-500 [writing-mode:vertical-lr] [direction:rtl]"
+                  aria-label="Adjust volume"
+                />
+                <button
+                  type="button"
+                  onClick={toggleMute}
+                  className="mt-2 text-xs text-neutral-400 hover:text-white"
+                >
+                  {isMuted ? "On" : "Off"}
+                </button>
+              </div>
+            )}
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setExpanded(true)}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-full text-neutral-400 transition hover:bg-white/10 hover:text-white"
+            aria-label="Expand player"
+          >
+            <ExpandIcon className="h-4 w-4" />
+          </button>
+
+          <button
+            type="button"
+            onClick={closeTrack}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-full text-neutral-500 transition hover:bg-white/10 hover:text-white"
+            aria-label="Close player"
+          >
+            <CloseIcon className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Expanded fullscreen player with transcript & sources              */
+/* ------------------------------------------------------------------ */
+
+function ExpandedPlayer({
+  onCollapse,
+  safeDuration,
+}: {
+  onCollapse: () => void;
+  safeDuration: number;
+}) {
+  const {
+    currentTrack,
+    isPlaying,
+    currentTime,
+    duration,
+    volume,
+    isMuted,
+    togglePlay,
+    seekTo,
+    seekBy,
+    setVolume,
+    toggleMute,
+  } = useBriefingAudio();
+
+  const { data: briefingDetail } = api.briefing.byId.useQuery(
+    { id: currentTrack?.id ?? "" },
+    { enabled: !!currentTrack?.id },
+  );
+
+  if (!currentTrack) return null;
+
+  const displayDuration =
+    duration > 0 ? duration : (currentTrack.durationSeconds ?? 0);
+
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col bg-neutral-950 text-white">
+      <div className="flex items-center justify-between border-b border-neutral-800 px-4 py-3 sm:px-6">
+        <button
+          type="button"
+          onClick={onCollapse}
+          className="inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-sm text-neutral-400 transition hover:bg-white/10 hover:text-white"
+        >
+          <CollapseIcon className="h-4 w-4" />
+          Minimize
+        </button>
+        <p className="text-sm font-medium text-neutral-300">Now playing</p>
+        <div className="w-20" />
+      </div>
+
+      <div className="flex-1 overflow-y-auto">
+        <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6">
+          <div className="text-center">
+            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-violet-300">
+              Daily briefing
+            </p>
+            <h2 className="mt-3 text-2xl font-bold tracking-tight sm:text-3xl">
+              {currentTrack.title}
+            </h2>
+            <p className="mt-2 text-sm text-neutral-400">
+              {currentTrack.publishedAtLabel}
+            </p>
+          </div>
+
+          <div className="mt-8">
+            <input
+              type="range"
+              min={0}
+              max={safeDuration}
+              step={1}
+              value={Math.min(currentTime, safeDuration)}
+              onChange={(e) => seekTo(Number(e.target.value))}
+              className="h-2 w-full cursor-pointer appearance-none rounded-full bg-white/15 accent-violet-500"
+              aria-label="Seek"
+            />
+            <div className="mt-2 flex justify-between text-xs text-neutral-500">
+              <span>{formatTime(currentTime)}</span>
+              <span>{formatTime(displayDuration)}</span>
+            </div>
+          </div>
+
+          <div className="mt-6 flex items-center justify-center gap-4">
+            <button
+              type="button"
+              onClick={() => seekBy(-10)}
+              className="inline-flex h-12 w-12 items-center justify-center rounded-full border border-white/10 bg-white/5 transition hover:bg-white/10"
+              aria-label="Rewind 10 seconds"
+            >
+              <BackIcon className="h-5 w-5" />
+            </button>
+            <button
+              type="button"
+              onClick={togglePlay}
+              className="inline-flex h-16 w-16 items-center justify-center rounded-full bg-white text-neutral-950 transition hover:bg-neutral-200"
+              aria-label={isPlaying ? "Pause" : "Play"}
+            >
+              {isPlaying ? (
+                <PauseIcon className="h-6 w-6" />
+              ) : (
+                <PlayIcon className="ml-1 h-6 w-6" />
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={() => seekBy(10)}
+              className="inline-flex h-12 w-12 items-center justify-center rounded-full border border-white/10 bg-white/5 transition hover:bg-white/10"
+              aria-label="Skip forward 10 seconds"
+            >
+              <ForwardIcon className="h-5 w-5" />
+            </button>
+          </div>
+
+          <div className="mt-4 flex items-center justify-center gap-3">
+            <VolumeIcon muted={isMuted || volume === 0} className="h-4 w-4 text-neutral-500" />
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.05}
+              value={isMuted ? 0 : volume}
+              onChange={(e) => setVolume(Number(e.target.value))}
+              className="h-1.5 w-32 cursor-pointer appearance-none rounded-full bg-white/15 accent-white"
+              aria-label="Volume"
+            />
+            <button
+              type="button"
+              onClick={toggleMute}
+              className="text-xs text-neutral-500 hover:text-white"
+            >
+              {isMuted ? "Unmute" : "Mute"}
+            </button>
+          </div>
+
+          {briefingDetail && (
+            <>
+              <section className="mt-12 border-t border-neutral-800 pt-8">
+                <h3 className="text-lg font-semibold">Transcript</h3>
+                <div className="mt-4 whitespace-pre-wrap text-sm leading-relaxed text-neutral-300">
+                  {briefingDetail.transcript ?? briefingDetail.script}
+                </div>
+              </section>
+
+              {briefingDetail.sources.length > 0 && (
+                <section className="mt-10 border-t border-neutral-800 pt-8">
+                  <h3 className="text-lg font-semibold">Sources</h3>
+                  <ul className="mt-4 space-y-3">
+                    {briefingDetail.sources.map((s) => {
+                      const safeHref = getSafeHttpUrl(s.article.url);
+                      return (
+                        <li key={s.id}>
+                          {safeHref ? (
+                            <a
+                              href={safeHref}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-violet-400 hover:underline"
+                            >
+                              {s.article.title}
+                            </a>
+                          ) : (
+                            <span className="text-neutral-200">
+                              {s.article.title}
+                              {s.article.url ? (
+                                <span className="mt-1 block break-all text-xs text-neutral-500">
+                                  {s.article.url}
+                                </span>
+                              ) : null}
+                            </span>
+                          )}
+                          <span className="ml-1 text-sm text-neutral-500">
+                            — {s.article.sourceName}
+                          </span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </section>
+              )}
+            </>
+          )}
+
+          {!briefingDetail && (
+            <p className="mt-12 text-center text-neutral-500">
+              Loading transcript…
+            </p>
+          )}
+        </div>
+
+        <div className="h-24" />
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  List item for the "Previous briefings" section                    */
+/* ------------------------------------------------------------------ */
+
+type BriefingListItemProps = {
+  briefing: {
+    id: string;
+    title: string;
+    audioUrl: string | null;
+    detailHref: string;
+    briefingDate: Date;
+    durationSeconds: number | null;
+    status: string;
+  };
+};
+
+export function BriefingListItem({ briefing }: BriefingListItemProps) {
+  const { currentTrack, isPlaying, playTrack, togglePlay, currentTime, duration } =
+    useBriefingAudio();
+  const { getProgressPercent, isCompleted } = useListeningProgress();
+  const router = useRouter();
+
+  const isActive = currentTrack?.id === briefing.id;
+  const completed = isCompleted(briefing.id);
+  const savedPercent = getProgressPercent(briefing.id);
+  const livePercent =
+    isActive && duration > 0 ? Math.min(currentTime / duration, 1) : savedPercent;
+  const hasProgress = livePercent > 0.01 && !completed;
+
+  const dateLabel = briefing.briefingDate.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  });
+
+  const dayOfMonthLabel = briefing.briefingDate.toLocaleDateString(undefined, {
+    day: "numeric",
+  });
+
+  const dayLabel = briefing.briefingDate.toLocaleDateString(undefined, {
+    weekday: "short",
+  });
+
+  const handlePlay = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (isActive) {
+      togglePlay();
+      return;
+    }
+    if (!briefing.audioUrl) return;
+    playTrack({
+      id: briefing.id,
+      title: briefing.title,
+      audioUrl: briefing.audioUrl,
+      detailHref: briefing.detailHref,
+      publishedAtLabel: briefing.briefingDate.toLocaleDateString(undefined, {
+        weekday: "long",
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+      }),
+      durationSeconds: briefing.durationSeconds,
+    });
+  };
+
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={() => router.push(briefing.detailHref)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          router.push(briefing.detailHref);
+        }
+      }}
+      className={`group relative cursor-pointer overflow-hidden rounded-2xl border transition ${
+        isActive
+          ? "border-violet-500/50 bg-violet-950/30 dark:bg-violet-950/20"
+          : "border-neutral-200 bg-white hover:border-neutral-300 dark:border-neutral-800 dark:bg-neutral-900 dark:hover:border-neutral-700"
+      }`}
+    >
+      {(hasProgress || (isActive && duration > 0)) && (
+        <div className="absolute inset-x-0 bottom-0 h-1 bg-neutral-200 dark:bg-neutral-800">
+          <div
+            className={`h-full transition-[width] ${isActive ? "bg-violet-500" : "bg-violet-400/60"}`}
+            style={{ width: `${livePercent * 100}%` }}
+          />
+        </div>
+      )}
+
+      <div className="flex items-center gap-4 p-4">
+        <div className="flex h-12 w-12 shrink-0 flex-col items-center justify-center rounded-xl bg-neutral-100 text-center dark:bg-neutral-800">
+          <span className="text-xs font-medium uppercase leading-none text-neutral-500 dark:text-neutral-400">
+            {dayLabel}
+          </span>
+          <span className="mt-0.5 text-sm font-bold leading-none text-neutral-900 dark:text-neutral-100">
+            {dayOfMonthLabel}
+          </span>
+        </div>
+
+        <div className="min-w-0 flex-1">
+          <p
+            className={`truncate text-sm font-semibold ${isActive ? "text-violet-300" : "text-neutral-900 dark:text-neutral-100"}`}
+          >
+            {briefing.title}
+          </p>
+          <div className="mt-1 flex items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400">
+            <span>{dateLabel}</span>
+            {briefing.durationSeconds != null && (
+              <>
+                <span className="text-neutral-300 dark:text-neutral-600">·</span>
+                <span>{formatTime(briefing.durationSeconds)}</span>
+              </>
+            )}
+            {completed && (
+              <>
+                <span className="text-neutral-300 dark:text-neutral-600">·</span>
+                <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
+                  <CheckIcon className="h-3 w-3" />
+                  Listened
+                </span>
+              </>
+            )}
+            {hasProgress && !completed && (
+              <>
+                <span className="text-neutral-300 dark:text-neutral-600">·</span>
+                <span className="text-violet-500 dark:text-violet-400">
+                  {Math.round(livePercent * 100)}%
+                </span>
+              </>
+            )}
+          </div>
+        </div>
+
+        {briefing.audioUrl && (
+          <button
+            type="button"
+            onClick={handlePlay}
+            className={`inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition ${
+              isActive && isPlaying
+                ? "bg-violet-500 text-white hover:bg-violet-600"
+                : "bg-neutral-100 text-neutral-700 hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-200 dark:hover:bg-neutral-700"
+            }`}
+            aria-label={isActive && isPlaying ? "Pause" : "Play"}
+          >
+            {isActive && isPlaying ? (
+              <PauseIcon className="h-4 w-4" />
+            ) : (
+              <PlayIcon className="ml-0.5 h-3.5 w-3.5" />
+            )}
+          </button>
+        )}
+
+        <ChevronRightIcon className="h-4 w-4 shrink-0 text-neutral-400 transition group-hover:text-neutral-600 dark:text-neutral-500 dark:group-hover:text-neutral-300" />
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Helpers & Icons                                                   */
+/* ------------------------------------------------------------------ */
+
+function formatTime(totalSeconds: number) {
+  if (!Number.isFinite(totalSeconds) || totalSeconds <= 0) return "0:00";
+  const s = Math.floor(totalSeconds);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  if (h > 0)
+    return `${h}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
+  return `${m}:${String(sec).padStart(2, "0")}`;
+}
+
+function PlayIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" className={className}>
+      <path d="M8 5v14l11-7z" />
+    </svg>
+  );
+}
+
+function PauseIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" className={className}>
+      <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
+    </svg>
+  );
+}
+
+function BackIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" className={className}>
+      <path d="M6 6h2v12H6zm3.5 6 8.5 6V6z" />
+    </svg>
+  );
+}
+
+function ForwardIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" className={className}>
+      <path d="M16 6h2v12h-2zm-10 0l8.5 6L6 18z" />
+    </svg>
+  );
+}
+
+function VolumeIcon({ muted, className }: { muted: boolean; className?: string }) {
+  if (muted) {
+    return (
+      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" className={className}>
+        <path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51A8.796 8.796 0 0 0 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3 3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06a8.99 8.99 0 0 0 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4 9.91 6.09 12 8.18V4z" />
+      </svg>
+    );
+  }
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" className={className}>
+      <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z" />
+    </svg>
+  );
+}
+
+function ExpandIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className={className}>
+      <polyline points="17 11 12 6 7 11" />
+      <polyline points="17 18 12 13 7 18" />
+    </svg>
+  );
+}
+
+function CollapseIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className={className}>
+      <polyline points="7 13 12 18 17 13" />
+      <polyline points="7 6 12 11 17 6" />
+    </svg>
+  );
+}
+
+function CloseIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className={className}>
+      <line x1="18" y1="6" x2="6" y2="18" />
+      <line x1="6" y1="6" x2="18" y2="18" />
+    </svg>
+  );
+}
+
+function CheckIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" className={className}>
+      <path d="M13.25 4.75 6 12 2.75 8.75" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function ChevronRightIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" className={className}>
+      <path d="M6.75 3.25 11.5 8l-4.75 4.75" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
