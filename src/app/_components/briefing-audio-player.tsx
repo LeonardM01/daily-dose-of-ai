@@ -7,6 +7,7 @@ import {
   type BriefingTrack,
   useBriefingAudio,
 } from "~/app/_components/briefing-audio-provider";
+import { Icon } from "~/app/_components/icon";
 import { useListeningProgress } from "~/app/_components/use-listening-progress";
 import { getSafeHttpUrl } from "~/lib/safe-external-url";
 import { api } from "~/trpc/react";
@@ -101,7 +102,7 @@ export function BriefingAudioPlayerSlot({
             }}
             className="inline-flex items-center justify-center gap-3 rounded-full bg-white px-5 py-3 font-medium text-neutral-950 transition hover:bg-neutral-200"
           >
-            <PlayIcon className="h-4 w-4" />
+            <Icon name="play" className="h-4 w-4" />
             Play briefing
           </button>
         </div>
@@ -262,7 +263,7 @@ function BottomBarPlayer() {
               className="inline-flex h-9 w-9 items-center justify-center rounded-full text-neutral-400 transition hover:bg-white/10 hover:text-white"
               aria-label="Rewind 10 seconds"
             >
-              <BackIcon className="h-4 w-4" />
+              <Icon name="back" className="h-4 w-4" />
             </button>
             <button
               type="button"
@@ -271,9 +272,9 @@ function BottomBarPlayer() {
               aria-label={isPlaying ? "Pause" : "Play"}
             >
               {isPlaying ? (
-                <PauseIcon className="h-4 w-4" />
+                <Icon name="pause" className="h-4 w-4" />
               ) : (
-                <PlayIcon className="ml-0.5 h-4 w-4" />
+                <Icon name="play" className="ml-0.5 h-4 w-4" />
               )}
             </button>
             <button
@@ -282,7 +283,7 @@ function BottomBarPlayer() {
               className="inline-flex h-9 w-9 items-center justify-center rounded-full text-neutral-400 transition hover:bg-white/10 hover:text-white"
               aria-label="Skip forward 10 seconds"
             >
-              <ForwardIcon className="h-4 w-4" />
+              <Icon name="forward" className="h-4 w-4" />
             </button>
           </div>
 
@@ -293,7 +294,7 @@ function BottomBarPlayer() {
               className="inline-flex h-9 w-9 items-center justify-center rounded-full text-neutral-400 transition hover:bg-white/10 hover:text-white"
               aria-label="Volume"
             >
-              <VolumeIcon muted={isMuted || volume === 0} className="h-4 w-4" />
+              <Icon name={isMuted || volume === 0 ? "volume-muted" : "volume"} className="h-4 w-4" />
             </button>
             {showVolume && (
               <div className="absolute bottom-full right-0 mb-2 flex w-10 flex-col items-center rounded-xl border border-neutral-700 bg-neutral-900 px-2 py-4 shadow-xl">
@@ -324,7 +325,7 @@ function BottomBarPlayer() {
             className="inline-flex h-9 w-9 items-center justify-center rounded-full text-neutral-400 transition hover:bg-white/10 hover:text-white"
             aria-label="Expand player"
           >
-            <ExpandIcon className="h-4 w-4" />
+            <Icon name="expand" className="h-4 w-4" />
           </button>
 
           <button
@@ -333,7 +334,7 @@ function BottomBarPlayer() {
             className="inline-flex h-9 w-9 items-center justify-center rounded-full text-neutral-500 transition hover:bg-white/10 hover:text-white"
             aria-label="Close player"
           >
-            <CloseIcon className="h-4 w-4" />
+            <Icon name="close" className="h-4 w-4" />
           </button>
         </div>
       </div>
@@ -384,7 +385,7 @@ function ExpandedPlayer({
           onClick={onCollapse}
           className="inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-sm text-neutral-400 transition hover:bg-white/10 hover:text-white"
         >
-          <CollapseIcon className="h-4 w-4" />
+          <Icon name="collapse" className="h-4 w-4" />
           Minimize
         </button>
         <p className="text-sm font-medium text-neutral-300">Now playing</p>
@@ -429,7 +430,7 @@ function ExpandedPlayer({
               className="inline-flex h-12 w-12 items-center justify-center rounded-full border border-white/10 bg-white/5 transition hover:bg-white/10"
               aria-label="Rewind 10 seconds"
             >
-              <BackIcon className="h-5 w-5" />
+              <Icon name="back" className="h-5 w-5" />
             </button>
             <button
               type="button"
@@ -438,9 +439,9 @@ function ExpandedPlayer({
               aria-label={isPlaying ? "Pause" : "Play"}
             >
               {isPlaying ? (
-                <PauseIcon className="h-6 w-6" />
+                <Icon name="pause" className="h-6 w-6" />
               ) : (
-                <PlayIcon className="ml-1 h-6 w-6" />
+                <Icon name="play" className="ml-1 h-6 w-6" />
               )}
             </button>
             <button
@@ -449,12 +450,12 @@ function ExpandedPlayer({
               className="inline-flex h-12 w-12 items-center justify-center rounded-full border border-white/10 bg-white/5 transition hover:bg-white/10"
               aria-label="Skip forward 10 seconds"
             >
-              <ForwardIcon className="h-5 w-5" />
+              <Icon name="forward" className="h-5 w-5" />
             </button>
           </div>
 
           <div className="mt-4 flex items-center justify-center gap-3">
-            <VolumeIcon muted={isMuted || volume === 0} className="h-4 w-4 text-neutral-500" />
+            <Icon name={isMuted || volume === 0 ? "volume-muted" : "volume"} className="h-4 w-4 text-neutral-500" />
             <input
               type="range"
               min={0}
@@ -653,7 +654,7 @@ export function BriefingListItem({ briefing }: BriefingListItemProps) {
               <>
                 <span className="text-neutral-300 dark:text-neutral-600">·</span>
                 <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
-                  <CheckIcon className="h-3 w-3" />
+                  <Icon name="check" className="h-3 w-3" />
                   Listened
                 </span>
               </>
@@ -681,14 +682,14 @@ export function BriefingListItem({ briefing }: BriefingListItemProps) {
             aria-label={isActive && isPlaying ? "Pause" : "Play"}
           >
             {isActive && isPlaying ? (
-              <PauseIcon className="h-4 w-4" />
+              <Icon name="pause" className="h-4 w-4" />
             ) : (
-              <PlayIcon className="ml-0.5 h-3.5 w-3.5" />
+              <Icon name="play" className="ml-0.5 h-3.5 w-3.5" />
             )}
           </button>
         )}
 
-        <ChevronRightIcon className="h-4 w-4 shrink-0 text-neutral-400 transition group-hover:text-neutral-600 dark:text-neutral-500 dark:group-hover:text-neutral-300" />
+        <Icon name="chevron-right" className="h-4 w-4 shrink-0 text-neutral-400 transition group-hover:text-neutral-600 dark:text-neutral-500 dark:group-hover:text-neutral-300" />
       </div>
     </div>
   );
@@ -709,92 +710,3 @@ function formatTime(totalSeconds: number) {
   return `${m}:${String(sec).padStart(2, "0")}`;
 }
 
-function PlayIcon({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" className={className}>
-      <path d="M8 5v14l11-7z" />
-    </svg>
-  );
-}
-
-function PauseIcon({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" className={className}>
-      <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
-    </svg>
-  );
-}
-
-function BackIcon({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" className={className}>
-      <path d="M6 6h2v12H6zm3.5 6 8.5 6V6z" />
-    </svg>
-  );
-}
-
-function ForwardIcon({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" className={className}>
-      <path d="M16 6h2v12h-2zm-10 0l8.5 6L6 18z" />
-    </svg>
-  );
-}
-
-function VolumeIcon({ muted, className }: { muted: boolean; className?: string }) {
-  if (muted) {
-    return (
-      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" className={className}>
-        <path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51A8.796 8.796 0 0 0 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3 3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06a8.99 8.99 0 0 0 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4 9.91 6.09 12 8.18V4z" />
-      </svg>
-    );
-  }
-  return (
-    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" className={className}>
-      <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z" />
-    </svg>
-  );
-}
-
-function ExpandIcon({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className={className}>
-      <polyline points="17 11 12 6 7 11" />
-      <polyline points="17 18 12 13 7 18" />
-    </svg>
-  );
-}
-
-function CollapseIcon({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className={className}>
-      <polyline points="7 13 12 18 17 13" />
-      <polyline points="7 6 12 11 17 6" />
-    </svg>
-  );
-}
-
-function CloseIcon({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className={className}>
-      <line x1="18" y1="6" x2="6" y2="18" />
-      <line x1="6" y1="6" x2="18" y2="18" />
-    </svg>
-  );
-}
-
-function CheckIcon({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" className={className}>
-      <path d="M13.25 4.75 6 12 2.75 8.75" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function ChevronRightIcon({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" className={className}>
-      <path d="M6.75 3.25 11.5 8l-4.75 4.75" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}

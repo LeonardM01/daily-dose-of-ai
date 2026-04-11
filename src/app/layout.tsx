@@ -5,6 +5,7 @@ import { Geist } from "next/font/google";
 
 import { PlayerBottomSpacer, PersistentBriefingMiniPlayer } from "~/app/_components/briefing-audio-player";
 import { BriefingAudioProvider } from "~/app/_components/briefing-audio-provider";
+import { SiteFooter } from "~/app/_components/site-footer";
 import { SiteHeader } from "~/app/_components/site-header";
 import { TRPCReactProvider } from "~/trpc/react";
 
@@ -29,6 +30,7 @@ export default function RootLayout({
           <BriefingAudioProvider>
             <SiteHeader />
             {children}
+            <SiteFooter />
             <PlayerBottomSpacer />
             <PersistentBriefingMiniPlayer />
           </BriefingAudioProvider>

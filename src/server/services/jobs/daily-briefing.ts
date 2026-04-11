@@ -235,7 +235,7 @@ export async function runDailyBriefingPipeline(): Promise<RunDailyBriefingResult
         ],
       },
       orderBy: [{ publishedAt: "desc" }, { createdAt: "desc" }],
-      take: 250,
+      take: 400,
     });
 
     const forRank: ArticleForRank[] = rawArticles.map((a) => ({

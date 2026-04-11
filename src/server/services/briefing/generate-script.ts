@@ -19,7 +19,7 @@ export type StoryInput = {
   excerpt: string | null;
 };
 
-const TARGET_SCRIPT_MAX_CHARS = 9000;
+const TARGET_SCRIPT_MAX_CHARS = 14000;
 
 export async function generateBriefingScript(
   apiKey: string,
@@ -35,24 +35,26 @@ export async function generateBriefingScript(
     source: s.sourceName,
     sources: s.sourceNames,
     note: s.reason,
-    excerpt: (s.excerpt ?? "").slice(0, 900),
+    excerpt: (s.excerpt ?? "").slice(0, 1200),
     corroboratingCoverage: s.supportingLinks.slice(0, 5),
   }));
 
   const prompt = `You write scripts for a thorough daily tech/AI news audio briefing called "Daily Dose of AI".
 Date for this episode: ${dateLabel}
 
-Write a single continuous script for the host to read aloud. Target length is 6.5 to 7.5 minutes when read at a moderate pace. Aim for roughly 950 to 1200 words. The script MUST stay under ${TARGET_SCRIPT_MAX_CHARS} characters total.
+Write a single continuous script for the host to read aloud. Target length is 6.5 to 7.5 minutes when read at a moderate pace. Aim for roughly 1400 to 1800 words. The script MUST stay under ${TARGET_SCRIPT_MAX_CHARS} characters total.
 
 Rules:
 - Start with a 1-2 sentence welcome that includes the date.
 - Cover the stories in order of global importance.
-- Spend 2-4 sentences on each major story.
+- Cover at least 12 stories when enough material is provided.
+- Spend 3-5 sentences on each major story, and 2-3 sentences on smaller but still relevant stories.
 - For each story: give context, what happened, and why it matters; mention the outlet or primary source by name.
 - If a story has corroborating coverage from multiple outlets, mention that briefly in one sentence, for example "covered by Anthropic and TechCrunch" or "discussed on Hacker News and reported by Anthropic."
 - Include brief transitions so the episode feels like a coherent morning briefing instead of a list.
 - Do not invent facts beyond the excerpts; if detail is missing, speak generally.
 - Prefer completeness over punchiness; do not end early if there are still important stories to cover.
+- Do not produce a short summary. This should feel like a full morning rundown with substantially more detail than a headline recap.
 - End with a brief sign-off.
 - No stage directions, no bullet points, no markdown, no URLs spoken letter-by-letter.
 

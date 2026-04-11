@@ -176,7 +176,7 @@ export async function rankStoriesWithGemini(
   const genAI = new GoogleGenerativeAI(apiKey);
   const model = genAI.getGenerativeModel({ model: MODEL });
 
-  const compact = clusters.slice(0, 150).map((cluster) => ({
+  const compact = clusters.slice(0, 220).map((cluster) => ({
     clusterId: cluster.id,
     title: cluster.title,
     primaryUrl: cluster.primaryUrl,
@@ -193,7 +193,7 @@ export async function rankStoriesWithGemini(
   const prompt = `You are selecting the biggest tech and AI industry stories for a daily audio briefing.
 Return ONLY valid JSON, no markdown, with this exact shape:
 {"top":[{"clusterId":"<clusterId from input>","reason":"<one short sentence why it matters globally>"}]}
-Pick 8 to 10 items. Prefer breaking news, major product/policy moves, widely impactful research, and stories with real ecosystem consequences. If multiple sources cover the same story, treat them as one combined story and favor clusters with corroboration and primary-source coverage.
+Pick 14 to 18 items. Prefer breaking news, major product/policy moves, widely impactful research, and stories with real ecosystem consequences. Include enough strong stories to support a full roughly 7-minute briefing. If multiple sources cover the same story, treat them as one combined story and favor clusters with corroboration and primary-source coverage.
 Input story clusters:
 ${JSON.stringify(compact)}`;
 
