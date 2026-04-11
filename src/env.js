@@ -22,7 +22,6 @@ export const env = createEnv({
         "Encryption secret: openssl rand -base64 32, openssl rand -hex 32, or any passphrase (8+ chars)",
       ),
     CRON_SECRET: z.string().optional(),
-    BLOB_READ_WRITE_TOKEN: z.string().optional(),
   },
 
   client: {},
@@ -39,7 +38,6 @@ export const env = createEnv({
     NODE_ENV: process.env.NODE_ENV,
     APP_ENCRYPTION_KEY: process.env.APP_ENCRYPTION_KEY,
     CRON_SECRET: process.env.CRON_SECRET,
-    BLOB_READ_WRITE_TOKEN: process.env.BLOB_READ_WRITE_TOKEN,
   },
   skipValidation: !!process.env.SKIP_ENV_VALIDATION,
   emptyStringAsUndefined: true,

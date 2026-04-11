@@ -33,7 +33,7 @@ Next.js (T3) app: daily **5–7 minute** AI/tech audio briefings from curated RS
      - `R2_SECRET_ACCESS_KEY`
      - `R2_PUBLIC_BASE_URL`
    - `CRON_SECRET`: required to call `/api/cron/daily` (local or production). Use `Authorization: Bearer <CRON_SECRET>`. Without it, the route returns `503`.
-   - Optional: `TTS_VOICE_NAME` if you want to override the default Chirp voice. Example: `en-US-Chirp-HD-F`.
+   - Optional: `TTS_VOICE_NAME` if you want to override the default Chirp voice. Example: `en-US-Chirp3-HD-Despina`.
 
 3. **Database**
 
@@ -53,9 +53,13 @@ Next.js (T3) app: daily **5–7 minute** AI/tech audio briefings from curated RS
    is pasting multiline JSON directly into `.env` instead of a one-line JSON
    string with escaped `\\n` characters inside `private_key`.
 
-   If the R2 env vars are set, generated MP3 files are uploaded to Cloudflare R2
-   and returned from `R2_PUBLIC_BASE_URL`. If they are not set, the app falls
-   back to local `public/audio` storage for development.
+   If the R2 env vars are set, generated audio files are uploaded to Cloudflare
+   R2 and returned from `R2_PUBLIC_BASE_URL`. If they are not set, the app
+   falls back to local `public/audio` storage for development.
+
+   Long briefings no longer use Google's long-audio API. Instead, the app
+   splits oversized SSML into multiple synchronous TTS requests, merges the
+   returned audio locally, and stores the final result as a single file.
 
 5. **Run the app**
 

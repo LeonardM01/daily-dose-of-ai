@@ -278,13 +278,15 @@ export async function runDailyBriefingPipeline(): Promise<RunDailyBriefingResult
     const {
       title,
       script,
+      ssml,
       tokensInput: tsIn,
       tokensOutput: tsOut,
     } = await generateBriefingScript(googleAiKey, stories, dateLabel);
     tokensInputTotal += tsIn;
     tokensOutputTotal += tsOut;
 
-    const { audioBuffer, characterCount } = await synthesizeChirpHd(gcpJson, script);
+    const { audioBuffer, characterCount, fileExtension, contentType } =
+      await synthesizeChirpHd(gcpJson, ssml);
     ttsChars = characterCount;
 
     const briefingRow = await db.dailyBriefing.findUnique({
@@ -292,7 +294,10 @@ export async function runDailyBriefingPipeline(): Promise<RunDailyBriefingResult
     });
     if (!briefingRow) throw new Error("Briefing row missing after upsert");
 
-    const audioUrl = await storeBriefingAudio(dateLabel, audioBuffer);
+    const audioUrl = await storeBriefingAudio(dateLabel, audioBuffer, {
+      extension: fileExtension,
+      contentType,
+    });
 
     const wordCount = script.split(/\s+/).filter(Boolean).length;
     const durationSeconds = Math.max(60, Math.round((wordCount / 140) * 60));
