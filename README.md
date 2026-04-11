@@ -26,8 +26,13 @@ Next.js (T3) app: daily **5–7 minute** AI/tech audio briefings from curated RS
    - Set `DATABASE_URL` (default matches `docker-compose.yml`).
    - Set `GOOGLE_AI_API_KEY` for Gemini.
    - Set `GOOGLE_TTS_SERVICE_ACCOUNT_JSON` to the full raw service account JSON string for Cloud Text-to-Speech on a single line.
+   - Optional but recommended for production audio storage:
+     - `R2_BUCKET`
+     - `R2_ENDPOINT`
+     - `R2_ACCESS_KEY_ID`
+     - `R2_SECRET_ACCESS_KEY`
+     - `R2_PUBLIC_BASE_URL`
    - `CRON_SECRET`: required to call `/api/cron/daily` (local or production). Use `Authorization: Bearer <CRON_SECRET>`. Without it, the route returns `503`.
-   - Optional: `BLOB_READ_WRITE_TOKEN` (Vercel Blob for MP3 URLs in production).
    - Optional: `TTS_VOICE_NAME` if you want to override the default Chirp voice. Example: `en-US-Chirp-HD-F`.
 
 3. **Database**
@@ -47,6 +52,10 @@ Next.js (T3) app: daily **5–7 minute** AI/tech audio briefings from curated RS
    `GOOGLE_TTS_SERVICE_ACCOUNT_JSON` env var is malformed. The most common issue
    is pasting multiline JSON directly into `.env` instead of a one-line JSON
    string with escaped `\\n` characters inside `private_key`.
+
+   If the R2 env vars are set, generated MP3 files are uploaded to Cloudflare R2
+   and returned from `R2_PUBLIC_BASE_URL`. If they are not set, the app falls
+   back to local `public/audio` storage for development.
 
 5. **Run the app**
 

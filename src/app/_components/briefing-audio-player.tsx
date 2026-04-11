@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   type BriefingTrack,
@@ -137,6 +137,7 @@ function BottomBarPlayer() {
     volume,
     isMuted,
     togglePlay,
+    seekTo,
     seekBy,
     setVolume,
     toggleMute,
@@ -146,6 +147,8 @@ function BottomBarPlayer() {
   const [expanded, setExpanded] = useState(false);
   const [showVolume, setShowVolume] = useState(false);
   const volumeRef = useRef<HTMLDivElement>(null);
+  const progressTrackRef = useRef<HTMLDivElement>(null);
+  const [isScrubbing, setIsScrubbing] = useState(false);
 
   useEffect(() => {
     if (!showVolume) return;
@@ -169,12 +172,24 @@ function BottomBarPlayer() {
     };
   }, [expanded]);
 
-  if (!currentTrack) return null;
-
   const displayDuration =
-    duration > 0 ? duration : (currentTrack.durationSeconds ?? 0);
+    duration > 0 ? duration : (currentTrack?.durationSeconds ?? 0);
   const safeDuration = Math.max(displayDuration, 1);
   const progressPercent = Math.min((currentTime / safeDuration) * 100, 100);
+
+  const seekFromClientX = useCallback(
+    (clientX: number) => {
+      const track = progressTrackRef.current;
+      if (!track) return;
+      const rect = track.getBoundingClientRect();
+      if (rect.width <= 0) return;
+      const ratio = Math.min(Math.max((clientX - rect.left) / rect.width, 0), 1);
+      seekTo(ratio * safeDuration);
+    },
+    [safeDuration, seekTo],
+  );
+
+  if (!currentTrack) return null;
 
   if (expanded) {
     return (
@@ -187,11 +202,42 @@ function BottomBarPlayer() {
 
   return (
     <div className="fixed inset-x-0 bottom-0 z-50">
-      <div className="h-1 bg-neutral-800">
-        <div
-          className="h-full bg-violet-500 transition-[width] duration-300"
-          style={{ width: `${progressPercent}%` }}
-        />
+      <div
+        ref={progressTrackRef}
+        className="relative h-4 cursor-pointer touch-none bg-neutral-900/95"
+        onPointerDown={(e) => {
+          setIsScrubbing(true);
+          e.currentTarget.setPointerCapture(e.pointerId);
+          seekFromClientX(e.clientX);
+        }}
+        onPointerMove={(e) => {
+          if (!isScrubbing) return;
+          seekFromClientX(e.clientX);
+        }}
+        onPointerUp={(e) => {
+          setIsScrubbing(false);
+          if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+            e.currentTarget.releasePointerCapture(e.pointerId);
+          }
+        }}
+        onPointerCancel={(e) => {
+          setIsScrubbing(false);
+          if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+            e.currentTarget.releasePointerCapture(e.pointerId);
+          }
+        }}
+        role="slider"
+        aria-label="Seek playback position"
+        aria-valuemin={0}
+        aria-valuemax={safeDuration}
+        aria-valuenow={Math.min(currentTime, safeDuration)}
+      >
+        <div className="pointer-events-none absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 bg-neutral-800">
+          <div
+            className={`h-full bg-violet-500 ${isScrubbing ? "" : "transition-[width] duration-150"}`}
+            style={{ width: `${progressPercent}%` }}
+          />
+        </div>
       </div>
 
       <div className="border-t border-neutral-800 bg-neutral-950/95 backdrop-blur-xl">

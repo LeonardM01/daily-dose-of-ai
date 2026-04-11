@@ -292,7 +292,7 @@ export async function runDailyBriefingPipeline(): Promise<RunDailyBriefingResult
     });
     if (!briefingRow) throw new Error("Briefing row missing after upsert");
 
-    const audioUrl = await storeBriefingAudio(briefingRow.id, audioBuffer);
+    const audioUrl = await storeBriefingAudio(dateLabel, audioBuffer);
 
     const wordCount = script.split(/\s+/).filter(Boolean).length;
     const durationSeconds = Math.max(60, Math.round((wordCount / 140) * 60));
