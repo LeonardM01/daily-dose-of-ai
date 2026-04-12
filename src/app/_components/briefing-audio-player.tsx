@@ -9,6 +9,7 @@ import {
 } from "~/app/_components/briefing-audio-provider";
 import { Icon } from "~/app/_components/icon";
 import { useListeningProgress } from "~/app/_components/use-listening-progress";
+import { getDisplayTranscript } from "~/lib/briefing-transcript";
 import { getSafeHttpUrl } from "~/lib/safe-external-url";
 import { api } from "~/trpc/react";
 
@@ -480,7 +481,10 @@ function ExpandedPlayer({
               <section className="mt-12 border-t border-neutral-800 pt-8">
                 <h3 className="text-lg font-semibold">Transcript</h3>
                 <div className="mt-4 whitespace-pre-wrap text-sm leading-relaxed text-neutral-300">
-                  {briefingDetail.transcript ?? briefingDetail.script}
+                  {getDisplayTranscript(
+                    briefingDetail.transcript,
+                    briefingDetail.script,
+                  )}
                 </div>
               </section>
 

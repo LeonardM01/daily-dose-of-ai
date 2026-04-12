@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 
 import { BriefingAudioPlayerSlot } from "~/app/_components/briefing-audio-player";
 import { PUBLIC_BRIEFING_FAILURE_MESSAGE } from "~/lib/briefing-messages";
+import { getDisplayTranscript } from "~/lib/briefing-transcript";
 import { getSafeHttpUrl } from "~/lib/safe-external-url";
 import { db } from "~/server/db";
 
@@ -83,7 +84,7 @@ export default async function BriefingDetailPage({
       <section className="mt-10">
         <h2 className="text-lg font-semibold">Transcript</h2>
         <div className="mt-3 whitespace-pre-wrap text-neutral-800 dark:text-neutral-200">
-          {briefing.transcript ?? briefing.script}
+          {getDisplayTranscript(briefing.transcript, briefing.script)}
         </div>
       </section>
 
