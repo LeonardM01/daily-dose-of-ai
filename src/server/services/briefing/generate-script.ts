@@ -1,6 +1,9 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
+ import { GoogleGenerativeAI } from "@google/generative-ai";
+ import { buildHumanizerPrompt } from "./humanizer";
 
-const MODEL = "gemini-2.5-flash";
+ const MODEL = "gemini-2.5-flash";
+ const HUMANIZER_MODEL = "gemini-2.5-flash";
+ const TTS_SYNC_LIMIT_BYTES = 5000;
 
 export type StoryInput = {
   articleId: string;
@@ -35,14 +38,23 @@ type PromptStoryPayload = {
   }>;
 };
 
+export type ScriptAttemptRecorder = (attempt: {
+  stage: "SCRIPT_TRANSCRIPT" | "SCRIPT_HUMANIZE" | "SCRIPT_SSML";
+  status: "SUCCESS" | "FAILED";
+  prompt: string;
+  response?: string;
+  error?: string;
+  metadata?: Record<string, unknown>;
+}) => Promise<void> | void;
+
 export async function generateBriefingScript(
   apiKey: string,
   stories: StoryInput[],
   dateLabel: string,
+  recordAttempt?: ScriptAttemptRecorder,
 ): Promise<{
   title: string;
   script: string;
-  ssml: string;
   tokensInput: number;
   tokensOutput: number;
 }> {
@@ -59,16 +71,10 @@ export async function generateBriefingScript(
     corroboratingCoverage: s.supportingLinks.slice(0, 5),
   }));
 
-  const prompt = `You write scripts for a thorough daily tech/AI news audio briefing called "Daily Dose of AI" and you also prepare production-safe SSML for Google Cloud Text-to-Speech Chirp 3 HD.
+  const transcriptPrompt = `You write scripts for a thorough daily tech/AI news audio briefing called "Daily Dose of AI".
 Date for this episode: ${dateLabel}
 
 Write a single continuous script for the host to read aloud. Target length is 6.5 to 7.5 minutes when read at a moderate pace. Aim for roughly 1400 to 1800 words. The plain transcript MUST stay under ${TARGET_SCRIPT_MAX_CHARS} characters total.
-
-Return ONLY valid JSON with this exact shape:
-{
-  "transcript": "plain text transcript with no SSML tags",
-  "ssml": "<speak>...</speak>"
-}
 
 Rules:
 - Start with a 1-2 sentence welcome that includes the date.
@@ -83,29 +89,20 @@ Rules:
 - Do not produce a short summary. This should feel like a full morning rundown with substantially more detail than a headline recap.
 - End with a brief sign-off.
 - No stage directions, no bullet points, no markdown, no URLs spoken letter-by-letter.
-
-SSML requirements for Chirp 3 HD:
-- The SSML must be well-formed and wrapped in a single <speak> root.
-- Use ONLY this safe subset of tags:
-  - <speak>
-  - <p>
-  - <s>
-  - <break time="...ms"/>
-  - <say-as interpret-as="characters|ordinal|cardinal|date|time">
-  - <sub alias="...">
-  - <prosody rate="slow|medium|fast" pitch="low|medium|high" volume="soft|medium|loud">
-- Do NOT use any other SSML tags.
-- Specifically DO NOT use: <audio>, <voice>, <lang>, <emphasis>, <mark>, <par>, <seq>.
-- Use <break> sparingly to create natural pacing around section transitions or after especially important items.
-- Use <prosody> only on short spans to lightly vary delivery. Do not wrap entire paragraphs in extreme prosody.
-- Use <say-as> only where it clearly improves pronunciation, such as abbreviations, dates, or acronyms.
-- The transcript field must stay plain text, and the ssml field must contain the expressive version of the same spoken content.
+- Return ONLY the plain spoken transcript text.
+- Do not return JSON.
+- Do not return SSML.
+- Do not use markdown.
 
 Stories JSON:
 ${JSON.stringify(payload)}`;
 
   const title = `Daily briefing — ${dateLabel}`;
-  const transcriptResult = await generateTranscript(model, prompt);
+  const transcriptResult = await generateTranscript(
+    model,
+    transcriptPrompt,
+    recordAttempt,
+  );
   let tokensInput = transcriptResult.tokensInput;
   let tokensOutput = transcriptResult.tokensOutput;
   let script = transcriptResult.script;
@@ -118,51 +115,193 @@ ${JSON.stringify(payload)}`;
     script = script.slice(0, TARGET_SCRIPT_MAX_CHARS - 3) + "...";
   }
 
-  let ssml: string;
-  try {
-    const ssmlResult = await generateSsmlFromTranscript(model, script, dateLabel);
-    tokensInput += ssmlResult.tokensInput;
-    tokensOutput += ssmlResult.tokensOutput;
-    ssml = sanitizeSsml(ssmlResult.ssml, script);
-  } catch (error) {
-    ssml = buildFallbackSsml(script);
-    console.warn("[briefing] falling back to deterministic SSML generation", {
-      error: error instanceof Error ? error.message : String(error),
-    });
-  }
-
-  return { title, script, ssml, tokensInput, tokensOutput };
+  return { title, script, tokensInput, tokensOutput };
 }
 
 async function generateTranscript(
   model: ReturnType<GoogleGenerativeAI["getGenerativeModel"]>,
   prompt: string,
+  recordAttempt?: ScriptAttemptRecorder,
 ): Promise<{ script: string; tokensInput: number; tokensOutput: number }> {
-  const transcriptPrompt = `${prompt}
+  let rawResponse = "";
+  try {
+    const result = await model.generateContent(prompt);
+    rawResponse = result.response.text();
+    const text = cleanTranscriptResponse(rawResponse);
+    const usage = result.response.usageMetadata;
 
-Return ONLY the plain spoken transcript text. Do not return JSON. Do not return SSML. Do not use markdown.`;
+    if (!text) {
+      throw new Error("Gemini transcript generation returned empty text");
+    }
 
-  const result = await model.generateContent(transcriptPrompt);
-  const text = cleanTranscriptResponse(result.response.text());
-  const usage = result.response.usageMetadata;
+    await recordAttempt?.({
+      stage: "SCRIPT_TRANSCRIPT",
+      status: "SUCCESS",
+      prompt,
+      response: rawResponse,
+      metadata: {
+        tokensInput: usage?.promptTokenCount ?? 0,
+        tokensOutput: usage?.candidatesTokenCount ?? 0,
+      },
+    });
 
-  if (!text) {
-    throw new Error("Gemini transcript fallback returned empty text");
+    return {
+      script: text,
+      tokensInput: usage?.promptTokenCount ?? 0,
+      tokensOutput: usage?.candidatesTokenCount ?? 0,
+    };
+  } catch (error) {
+    await recordAttempt?.({
+      stage: "SCRIPT_TRANSCRIPT",
+      status: "FAILED",
+      prompt,
+      response: rawResponse || undefined,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
   }
-
-  return {
-    script: text,
-    tokensInput: usage?.promptTokenCount ?? 0,
-    tokensOutput: usage?.candidatesTokenCount ?? 0,
-  };
 }
 
-async function generateSsmlFromTranscript(
-  model: ReturnType<GoogleGenerativeAI["getGenerativeModel"]>,
+export async function generateBriefingSsml(
+  apiKey: string,
   transcript: string,
   dateLabel: string,
+  recordAttempt?: ScriptAttemptRecorder,
 ): Promise<{ ssml: string; tokensInput: number; tokensOutput: number }> {
-  const prompt = `Convert this completed Daily Dose of AI transcript into production-safe SSML for Google Cloud Text-to-Speech Chirp 3 HD.
+  const genAI = new GoogleGenerativeAI(apiKey);
+  const model = genAI.getGenerativeModel({ model: MODEL });
+  const prompt = buildSsmlPrompt(transcript, dateLabel);
+  const transcriptLength = transcript.length;
+
+  let rawResponse = "";
+  let tokensInput = 0;
+  let tokensOutput = 0;
+  try {
+    const result = await model.generateContent(prompt);
+    rawResponse = result.response.text();
+    const usage = result.response.usageMetadata;
+    tokensInput = usage?.promptTokenCount ?? 0;
+    tokensOutput = usage?.candidatesTokenCount ?? 0;
+
+    const resolved = resolveSsml(rawResponse, transcript);
+    const ssmlBytes = Buffer.byteLength(resolved.ssml, "utf8");
+    await recordAttempt?.({
+      stage: "SCRIPT_SSML",
+      status: "SUCCESS",
+      prompt,
+      response: resolved.ssml,
+      metadata: {
+        transcriptLength,
+        ssmlLength: resolved.ssml.length,
+        ssmlBytes,
+        exceedsSyncTtsLimit: ssmlBytes > TTS_SYNC_LIMIT_BYTES,
+        usedFallback: resolved.usedFallback,
+        fallbackReason: resolved.fallbackReason,
+        modelResponseLength: rawResponse.length,
+        tokensInput,
+        tokensOutput,
+      },
+    });
+
+    return {
+      ssml: resolved.ssml,
+      tokensInput,
+      tokensOutput,
+    };
+  } catch (error) {
+    await recordAttempt?.({
+      stage: "SCRIPT_SSML",
+      status: "FAILED",
+      prompt,
+      response: rawResponse || undefined,
+      error: error instanceof Error ? error.message : String(error),
+      metadata: {
+        transcriptLength,
+        tokensInput,
+        tokensOutput,
+      },
+    });
+
+    const ssml = buildFallbackSsml(transcript);
+    const ssmlBytes = Buffer.byteLength(ssml, "utf8");
+    await recordAttempt?.({
+      stage: "SCRIPT_SSML",
+      status: "SUCCESS",
+      prompt,
+      response: ssml,
+      metadata: {
+        transcriptLength,
+        ssmlLength: ssml.length,
+        ssmlBytes,
+        exceedsSyncTtsLimit: ssmlBytes > TTS_SYNC_LIMIT_BYTES,
+        usedFallback: true,
+        fallbackReason: "model_generation_failed",
+        tokensInput,
+        tokensOutput,
+      },
+    });
+
+    console.warn("[briefing] falling back to deterministic SSML generation", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+
+    return { ssml, tokensInput, tokensOutput };
+  }
+}
+
+export async function humanizeTranscript(
+  apiKey: string,
+  transcript: string,
+  recordAttempt?: ScriptAttemptRecorder,
+): Promise<{ transcript: string; tokensInput: number; tokensOutput: number }> {
+  const genAI = new GoogleGenerativeAI(apiKey);
+  const model = genAI.getGenerativeModel({ model: HUMANIZER_MODEL });
+  const prompt = buildHumanizerPrompt(transcript);
+  const originalLength = transcript.length;
+
+  try {
+    const result = await model.generateContent(prompt);
+    const humanized = result.response.text().trim();
+    const usage = result.response.usageMetadata;
+    const tokensInput = usage?.promptTokenCount ?? 0;
+    const tokensOutput = usage?.candidatesTokenCount ?? 0;
+
+    await recordAttempt?.({
+      stage: "SCRIPT_HUMANIZE",
+      status: "SUCCESS",
+      prompt,
+      response: humanized,
+      metadata: {
+        originalLength,
+        humanizedLength: humanized.length,
+        lengthDelta: humanized.length - originalLength,
+        tokensInput,
+        tokensOutput,
+      },
+    });
+
+    return { transcript: humanized, tokensInput, tokensOutput };
+  } catch (error) {
+    await recordAttempt?.({
+      stage: "SCRIPT_HUMANIZE",
+      status: "FAILED",
+      prompt,
+      error: error instanceof Error ? error.message : String(error),
+      metadata: {
+        originalLength,
+      },
+    });
+
+    console.warn("[briefing] humanizer failed, using raw transcript", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+
+    return { transcript, tokensInput: 0, tokensOutput: 0 };
+  }
+}
+
+function buildSsmlPrompt(transcript: string, dateLabel: string): string {
+  return `Convert this completed Daily Dose of AI transcript into production-safe SSML for Google Cloud Text-to-Speech Chirp 3 HD.
 Date for this episode: ${dateLabel}
 
 Return ONLY SSML wrapped in a single <speak> root. Do not return JSON. Do not return markdown. Do not add commentary before or after the SSML.
@@ -186,21 +325,16 @@ Requirements:
 
 Transcript:
 ${transcript}`;
-
-  const result = await model.generateContent(prompt);
-  const usage = result.response.usageMetadata;
-
-  return {
-    ssml: result.response.text().trim(),
-    tokensInput: usage?.promptTokenCount ?? 0,
-    tokensOutput: usage?.candidatesTokenCount ?? 0,
-  };
 }
 
 function cleanTranscriptResponse(text: string): string {
-  let normalized = text.trim();
-  normalized = normalized.replace(/```(?:text|markdown)?/gi, "").replace(/```/g, "");
+  let normalized = stripCodeFences(text.trim());
   normalized = normalized.trim();
+
+  const parsed = tryParseStructuredTranscript(normalized);
+  if (parsed) {
+    return parsed;
+  }
 
   if (normalized.startsWith('"') && normalized.endsWith('"')) {
     try {
@@ -213,9 +347,55 @@ function cleanTranscriptResponse(text: string): string {
   return normalized.trim();
 }
 
-function sanitizeSsml(ssml: string | undefined, transcript: string): string {
+function tryParseStructuredTranscript(text: string): string | null {
+  const jsonText = extractJsonObject(text);
+  if (!jsonText) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(jsonText) as {
+      transcript?: unknown;
+      script?: unknown;
+    };
+    if (typeof parsed.transcript === "string") {
+      return parsed.transcript.trim();
+    }
+    if (typeof parsed.script === "string") {
+      return parsed.script.trim();
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+function stripCodeFences(text: string): string {
+  const fenced = /```(?:json|text|markdown)?\s*([\s\S]*?)```/i.exec(text);
+  return fenced?.[1]?.trim() ?? text;
+}
+
+function extractJsonObject(text: string): string | null {
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  if (start === -1 || end === -1 || end <= start) {
+    return null;
+  }
+
+  return text.slice(start, end + 1);
+}
+
+function resolveSsml(
+  ssml: string | undefined,
+  transcript: string,
+): { ssml: string; usedFallback: boolean; fallbackReason?: string } {
   if (!ssml) {
-    return buildFallbackSsml(transcript);
+    return {
+      ssml: buildFallbackSsml(transcript),
+      usedFallback: true,
+      fallbackReason: "empty_ssml_response",
+    };
   }
 
   let normalized = ssml.trim();
@@ -224,7 +404,11 @@ function sanitizeSsml(ssml: string | undefined, transcript: string): string {
   const hasSpeakRoot =
     normalized.startsWith("<speak>") && normalized.endsWith("</speak>");
   if (!hasSpeakRoot) {
-    return buildFallbackSsml(transcript);
+    return {
+      ssml: buildFallbackSsml(transcript),
+      usedFallback: true,
+      fallbackReason: "missing_speak_root",
+    };
   }
 
   const forbiddenTags = [
@@ -239,11 +423,15 @@ function sanitizeSsml(ssml: string | undefined, transcript: string): string {
   for (const tag of forbiddenTags) {
     const re = new RegExp(`<\\/?\\s*${tag}\\b`, "i");
     if (re.test(normalized)) {
-      return buildFallbackSsml(transcript);
+      return {
+        ssml: buildFallbackSsml(transcript),
+        usedFallback: true,
+        fallbackReason: `forbidden_tag_${tag}`,
+      };
     }
   }
 
-  return normalized;
+  return { ssml: normalized, usedFallback: false };
 }
 
 function buildFallbackSsml(transcript: string): string {

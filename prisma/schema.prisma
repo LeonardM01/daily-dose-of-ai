@@ -101,7 +101,9 @@ model DailyBriefing {
     id              String          @id @default(cuid())
     briefingDate    DateTime
     title           String
+    /// Final SSML passed to TTS (same payload used for audio synthesis).
     script          String          @db.Text
+    /// Humanized plain text for display; wording matches what listeners hear.
     transcript      String?         @db.Text
     audioUrl        String?
     status          BriefingStatus  @default(PENDING)
@@ -134,24 +136,53 @@ model BriefingSource {
 }
 
 model JobRun {
-    id             String       @id @default(cuid())
-    briefingDate   DateTime
-    status         JobRunStatus
-    startedAt      DateTime     @default(now())
-    finishedAt     DateTime?
-    error          String?      @db.Text
-    idempotencyKey String       @unique
-    tokensInput    Int?
-    tokensOutput   Int?
-    ttsCharacters  Int?
-    briefingId     String?
-    briefing       DailyBriefing? @relation(fields: [briefingId], references: [id], onDelete: SetNull)
+    id                 String              @id @default(cuid())
+    briefingDate       DateTime
+    status             JobRunStatus
+    startedAt          DateTime            @default(now())
+    finishedAt         DateTime?
+    error              String?             @db.Text
+    idempotencyKey     String              @unique
+    tokensInput        Int?
+    tokensOutput       Int?
+    ttsCharacters      Int?
+    briefingId         String?
+    briefing           DailyBriefing?      @relation(fields: [briefingId], references: [id], onDelete: SetNull)
+    generationAttempts GenerationAttempt[]
 
     @@index([briefingDate])
 }
 
 enum JobRunStatus {
     STARTED
+    SUCCESS
+    FAILED
+}
+
+model GenerationAttempt {
+    id         String                  @id @default(cuid())
+    jobRunId   String
+    jobRun     JobRun                  @relation(fields: [jobRunId], references: [id], onDelete: Cascade)
+    stage      GenerationAttemptStage
+    status     GenerationAttemptStatus
+    prompt     String?                 @db.Text
+    response   String?                 @db.Text
+    error      String?                 @db.Text
+    metadata   Json?
+    createdAt  DateTime                @default(now())
+    updatedAt  DateTime                @updatedAt
+
+    @@index([jobRunId, stage, createdAt])
+}
+
+enum GenerationAttemptStage {
+    RANKING
+    SCRIPT_TRANSCRIPT
+    SCRIPT_HUMANIZE
+    SCRIPT_SSML
+}
+
+enum GenerationAttemptStatus {
     SUCCESS
     FAILED
 }
