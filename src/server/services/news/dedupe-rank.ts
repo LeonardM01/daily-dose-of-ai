@@ -29,6 +29,15 @@ export type StoryCluster = {
   }>;
 };
 
+export type RankingAttemptRecorder = (attempt: {
+  stage: "RANKING";
+  status: "SUCCESS" | "FAILED";
+  prompt: string;
+  response?: string;
+  error?: string;
+  metadata?: Record<string, unknown>;
+}) => Promise<void> | void;
+
 const MODEL = "gemini-2.5-flash-lite";
 const TITLE_STOPWORDS = new Set([
   "a",
@@ -168,6 +177,7 @@ export function clusterArticles(articles: ArticleForRank[]): StoryCluster[] {
 export async function rankStoriesWithGemini(
   apiKey: string,
   clusters: StoryCluster[],
+  recordAttempt?: RankingAttemptRecorder,
 ): Promise<{
   ranked: RankedStory[];
   tokensInput: number;
@@ -202,23 +212,51 @@ Pick 14 to 18 items. Prefer breaking news, major product/policy moves, widely im
 Input story clusters:
 ${JSON.stringify(compact)}`;
 
-  const result = await model.generateContent(prompt);
-  const text = result.response.text();
-  const usage = result.response.usageMetadata;
-  const tokensInput = usage?.promptTokenCount ?? 0;
-  const tokensOutput =
-    usage?.candidatesTokenCount ??
-    (usage?.totalTokenCount != null && usage?.promptTokenCount != null
-      ? usage.totalTokenCount - usage.promptTokenCount
-      : 0);
+  let text = "";
+  try {
+    const result = await model.generateContent(prompt);
+    text = result.response.text();
+    const usage = result.response.usageMetadata;
+    const tokensInput = usage?.promptTokenCount ?? 0;
+    const tokensOutput =
+      usage?.candidatesTokenCount ??
+      (usage?.totalTokenCount != null && usage?.promptTokenCount != null
+        ? usage.totalTokenCount - usage.promptTokenCount
+        : 0);
 
-  const parsed = parseJsonFromModel(text) as { top?: RankedStory[] };
-  const top = parsed.top ?? [];
-  return {
-    ranked: top.filter((t) => t.clusterId && t.reason),
-    tokensInput,
-    tokensOutput,
-  };
+    const parsed = parseJsonFromModel(text) as { top?: RankedStory[] };
+    const top = parsed.top ?? [];
+
+    await recordAttempt?.({
+      stage: "RANKING",
+      status: "SUCCESS",
+      prompt,
+      response: text,
+      metadata: {
+        clusterCount: compact.length,
+        tokensInput,
+        tokensOutput,
+      },
+    });
+
+    return {
+      ranked: top.filter((t) => t.clusterId && t.reason),
+      tokensInput,
+      tokensOutput,
+    };
+  } catch (error) {
+    await recordAttempt?.({
+      stage: "RANKING",
+      status: "FAILED",
+      prompt,
+      response: text || undefined,
+      error: error instanceof Error ? error.message : String(error),
+      metadata: {
+        clusterCount: compact.length,
+      },
+    });
+    throw error;
+  }
 }
 
 function parseJsonFromModel(text: string): unknown {

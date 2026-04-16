@@ -4,13 +4,19 @@ import { Prisma } from "../../../../generated/prisma";
 import { ensureDefaultFeeds } from "~/server/data/default-feeds";
 import { db } from "~/server/db";
 import { env } from "~/env";
-import { generateBriefingScript } from "~/server/services/briefing/generate-script";
+ import {
+   generateBriefingScript,
+   generateBriefingSsml,
+   humanizeTranscript,
+   type ScriptAttemptRecorder,
+ } from "~/server/services/briefing/generate-script";
 import { storeBriefingAudio } from "~/server/services/briefing/store-audio";
 import { synthesizeChirpHd } from "~/server/services/briefing/synthesize-audio";
 import {
   clusterArticles,
   rankStoriesWithGemini,
   type ArticleForRank,
+  type RankingAttemptRecorder,
 } from "~/server/services/news/dedupe-rank";
 import { ingestAllEnabledFeeds } from "~/server/services/news/ingest";
 
@@ -44,6 +50,43 @@ async function releaseJobLock(briefingDate: Date): Promise<void> {
 
 function isStaleJobLock(lockedAt: Date): boolean {
   return Date.now() - lockedAt.getTime() > JOB_LOCK_STALE_AFTER_MS;
+}
+
+type AttemptStage =
+  | "RANKING"
+  | "SCRIPT_TRANSCRIPT"
+  | "SCRIPT_HUMANIZE"
+  | "SCRIPT_SSML";
+type AttemptStatus = "SUCCESS" | "FAILED";
+
+async function recordGenerationAttempt(params: {
+  jobRunId: string;
+  stage: AttemptStage;
+  status: AttemptStatus;
+  prompt: string;
+  response?: string;
+  error?: string;
+  metadata?: Prisma.InputJsonValue;
+}): Promise<void> {
+  await db.generationAttempt
+    .create({
+      data: {
+        jobRunId: params.jobRunId,
+        stage: params.stage,
+        status: params.status,
+        prompt: params.prompt,
+        response: params.response,
+        error: params.error,
+        metadata: params.metadata,
+      },
+    })
+    .catch((error: unknown) => {
+      console.error("[daily-briefing] failed to record generation attempt", {
+        jobRunId: params.jobRunId,
+        stage: params.stage,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
 }
 
 async function acquireJobLock(
@@ -195,6 +238,19 @@ export async function runDailyBriefingPipeline(): Promise<RunDailyBriefingResult
   let tokensInputTotal = 0;
   let tokensOutputTotal = 0;
   let ttsChars = 0;
+  const recordAttempt: RankingAttemptRecorder & ScriptAttemptRecorder = async (
+    attempt,
+  ) => {
+    await recordGenerationAttempt({
+      jobRunId: jobRun.id,
+      stage: attempt.stage,
+      status: attempt.status,
+      prompt: attempt.prompt,
+      response: attempt.response,
+      error: attempt.error,
+      metadata: attempt.metadata as Prisma.InputJsonValue | undefined,
+    });
+  };
 
   try {
     if (!env.GOOGLE_AI_API_KEY || !env.GOOGLE_TTS_SERVICE_ACCOUNT_JSON) {
@@ -248,7 +304,7 @@ export async function runDailyBriefingPipeline(): Promise<RunDailyBriefingResult
 
     const clusters = clusterArticles(forRank);
     const { ranked, tokensInput: trIn, tokensOutput: trOut } =
-      await rankStoriesWithGemini(googleAiKey, clusters);
+      await rankStoriesWithGemini(googleAiKey, clusters, recordAttempt);
     tokensInputTotal += trIn;
     tokensOutputTotal += trOut;
 
@@ -278,12 +334,27 @@ export async function runDailyBriefingPipeline(): Promise<RunDailyBriefingResult
     const {
       title,
       script,
-      ssml,
       tokensInput: tsIn,
       tokensOutput: tsOut,
-    } = await generateBriefingScript(googleAiKey, stories, dateLabel);
+    } = await generateBriefingScript(googleAiKey, stories, dateLabel, recordAttempt);
     tokensInputTotal += tsIn;
     tokensOutputTotal += tsOut;
+
+    const {
+      transcript: humanizedScript,
+      tokensInput: hIn,
+      tokensOutput: hOut,
+    } = await humanizeTranscript(googleAiKey, script, recordAttempt);
+    tokensInputTotal += hIn;
+    tokensOutputTotal += hOut;
+
+    const {
+      ssml,
+      tokensInput: ssmlIn,
+      tokensOutput: ssmlOut,
+    } = await generateBriefingSsml(googleAiKey, humanizedScript, dateLabel, recordAttempt);
+    tokensInputTotal += ssmlIn;
+    tokensOutputTotal += ssmlOut;
 
     const { audioBuffer, characterCount, fileExtension, contentType } =
       await synthesizeChirpHd(gcpJson, ssml, { briefingDate });
