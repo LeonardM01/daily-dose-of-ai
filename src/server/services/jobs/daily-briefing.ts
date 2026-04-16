@@ -370,7 +370,7 @@ export async function runDailyBriefingPipeline(): Promise<RunDailyBriefingResult
       contentType,
     });
 
-    const wordCount = script.split(/\s+/).filter(Boolean).length;
+    const wordCount = humanizedScript.split(/\s+/).filter(Boolean).length;
     const durationSeconds = Math.max(60, Math.round((wordCount / 140) * 60));
 
     await db.$transaction([
@@ -378,8 +378,8 @@ export async function runDailyBriefingPipeline(): Promise<RunDailyBriefingResult
         where: { id: briefingRow.id },
         data: {
           title,
-          script,
-          transcript: script,
+          script: ssml,
+          transcript: humanizedScript,
           audioUrl,
           status: "COMPLETED",
           durationSeconds,

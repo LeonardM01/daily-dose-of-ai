@@ -101,7 +101,9 @@ model DailyBriefing {
     id              String          @id @default(cuid())
     briefingDate    DateTime
     title           String
+    /// Final SSML passed to TTS (same payload used for audio synthesis).
     script          String          @db.Text
+    /// Humanized plain text for display; wording matches what listeners hear.
     transcript      String?         @db.Text
     audioUrl        String?
     status          BriefingStatus  @default(PENDING)
