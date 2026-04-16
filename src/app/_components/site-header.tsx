@@ -7,8 +7,14 @@ export function SiteHeader() {
         <Link href="/" className="font-semibold text-violet-700 dark:text-violet-400">
           Daily Dose of AI
         </Link>
-        <nav className="flex items-center gap-4 text-sm">
-          <span className="text-neutral-500">
+        <nav className="flex items-center gap-5 text-sm">
+          <Link
+            href="/trending"
+            className="text-neutral-600 hover:text-violet-700 dark:text-neutral-300 dark:hover:text-violet-400"
+          >
+            Trending
+          </Link>
+          <span className="hidden text-neutral-500 md:inline">
             Daily AI and tech news, ready to listen
           </span>
         </nav>
