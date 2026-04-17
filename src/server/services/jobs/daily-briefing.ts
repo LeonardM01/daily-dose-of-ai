@@ -11,7 +11,7 @@ import { env } from "~/env";
    type ScriptAttemptRecorder,
  } from "~/server/services/briefing/generate-script";
 import { storeBriefingAudio } from "~/server/services/briefing/store-audio";
-import { synthesizeChirpHd } from "~/server/services/briefing/synthesize-audio";
+import { synthesizeChirpHdSegmented } from "~/server/services/briefing/synthesize-audio";
 import {
   clusterArticles,
   rankStoriesWithGemini,
@@ -356,8 +356,8 @@ export async function runDailyBriefingPipeline(): Promise<RunDailyBriefingResult
     tokensInputTotal += ssmlIn;
     tokensOutputTotal += ssmlOut;
 
-    const { audioBuffer, characterCount, fileExtension, contentType } =
-      await synthesizeChirpHd(gcpJson, ssml, { briefingDate });
+    const { audioBuffer, characterCount, fileExtension, contentType, segments } =
+      await synthesizeChirpHdSegmented(gcpJson, humanizedScript, { briefingDate });
     ttsChars = characterCount;
 
     const briefingRow = await db.dailyBriefing.findUnique({
@@ -380,6 +380,9 @@ export async function runDailyBriefingPipeline(): Promise<RunDailyBriefingResult
           title,
           script: ssml,
           transcript: humanizedScript,
+          transcriptSegments: segments
+            ? (segments as unknown as Prisma.InputJsonValue)
+            : Prisma.JsonNull,
           audioUrl,
           status: "COMPLETED",
           durationSeconds,

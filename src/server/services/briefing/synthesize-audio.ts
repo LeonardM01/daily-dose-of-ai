@@ -1,5 +1,7 @@
 import { TextToSpeechClient } from "@google-cloud/text-to-speech";
 
+import { splitIntoSentences } from "./split-sentences";
+
 const VOICE_POOL = [
   "en-US-Chirp3-HD-Alnilam",
   "en-US-Chirp3-HD-Aoede",
@@ -17,12 +19,20 @@ function getVoiceForDate(date: Date = new Date()): string {
 
 const SYNC_TTS_LIMIT_BYTES = 5000;
 const TARGET_CHUNK_BYTES = 4200;
+const SYNTH_CONCURRENCY = 4;
+
+export type TranscriptSegment = {
+  text: string;
+  startMs: number;
+  endMs: number;
+};
 
 export type SynthesizeResult = {
   audioBuffer: Buffer;
   characterCount: number;
   contentType: "audio/mpeg" | "audio/wav";
   fileExtension: "mp3" | "wav";
+  segments?: TranscriptSegment[];
 };
 
 /**
@@ -79,6 +89,116 @@ export async function synthesizeChirpHd(
     contentType: "audio/mpeg",
     fileExtension: "mp3",
   };
+}
+
+/**
+ * Synthesizes the transcript one sentence at a time and records the start/end
+ * ms of each sentence based on the WAV sample count. Returns a merged LINEAR16
+ * WAV plus a `segments` array used to drive the synchronized transcript UI.
+ */
+export async function synthesizeChirpHdSegmented(
+  serviceAccountJson: string,
+  transcript: string,
+  options?: {
+    voiceName?: string;
+    briefingDate?: Date;
+  },
+): Promise<SynthesizeResult> {
+  const sentences = splitIntoSentences(transcript);
+  if (sentences.length === 0) {
+    throw new Error("Segmented synthesis called with an empty transcript");
+  }
+
+  const normalizedJson = serviceAccountJson.trim();
+  const credentials = parseServiceAccountJson(normalizedJson);
+  const voiceName =
+    options?.voiceName ?? process.env.TTS_VOICE_NAME ?? getVoiceForDate(options?.briefingDate);
+
+  const client = new TextToSpeechClient({ credentials });
+
+  const results = new Array<Buffer>(sentences.length);
+  let cursor = 0;
+  const workers = Array.from(
+    { length: Math.min(SYNTH_CONCURRENCY, sentences.length) },
+    async () => {
+      while (true) {
+        const index = cursor++;
+        if (index >= sentences.length) return;
+        const text = sentences[index]!;
+        results[index] = await synthesizeSentence(client, text, voiceName);
+      }
+    },
+  );
+  await Promise.all(workers);
+
+  const parsed = results.map((buf, idx) => ({
+    buf,
+    parsed: parseWavBuffer(buf),
+    text: sentences[idx]!,
+  }));
+
+  const first = parsed[0]!.parsed;
+  const msPerFrame = 1000 / first.sampleRate;
+  const bytesPerFrame = (first.bitsPerSample / 8) * first.channelCount;
+
+  const segments: TranscriptSegment[] = [];
+  let cursorMs = 0;
+  for (const p of parsed) {
+    if (
+      p.parsed.sampleRate !== first.sampleRate ||
+      p.parsed.channelCount !== first.channelCount ||
+      p.parsed.bitsPerSample !== first.bitsPerSample
+    ) {
+      throw new Error("Per-sentence WAVs used incompatible formats");
+    }
+    const frames = p.parsed.dataChunk.length / bytesPerFrame;
+    const durationMs = frames * msPerFrame;
+    const startMs = Math.round(cursorMs);
+    const endMs = Math.round(cursorMs + durationMs);
+    segments.push({ text: p.text, startMs, endMs });
+    cursorMs += durationMs;
+  }
+
+  const merged = mergeLinear16WavBuffers(parsed.map((p) => p.buf));
+
+  return {
+    audioBuffer: merged,
+    characterCount: transcript.length,
+    contentType: "audio/wav",
+    fileExtension: "wav",
+    segments,
+  };
+}
+
+async function synthesizeSentence(
+  client: TextToSpeechClient,
+  text: string,
+  voiceName: string,
+): Promise<Buffer> {
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const [response] = await client.synthesizeSpeech({
+        input: { text },
+        voice: { languageCode: "en-US", name: voiceName },
+        audioConfig: {
+          audioEncoding: "LINEAR16",
+          speakingRate: 1.0,
+          sampleRateHertz: 24000,
+        },
+      });
+      const audio = response.audioContent;
+      if (!audio) throw new Error("empty audio");
+      return Buffer.from(audio);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw new Error(
+    `Per-sentence TTS failed after retry: ${
+      lastError instanceof Error ? lastError.message : String(lastError)
+    }`,
+  );
 }
 
 function parseServiceAccountJson(

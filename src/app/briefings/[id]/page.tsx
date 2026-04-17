@@ -2,6 +2,10 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { BriefingAudioPlayerSlot } from "~/app/_components/briefing-audio-player";
+import {
+  SynchronizedTranscript,
+  type TranscriptSegment,
+} from "~/app/_components/synchronized-transcript";
 import { PUBLIC_BRIEFING_FAILURE_MESSAGE } from "~/lib/briefing-messages";
 import { getDisplayTranscript } from "~/lib/briefing-transcript";
 import { getSafeHttpUrl } from "~/lib/safe-external-url";
@@ -24,6 +28,7 @@ export default async function BriefingDetailPage({
       durationSeconds: true,
       script: true,
       transcript: true,
+      transcriptSegments: true,
       sources: {
         include: {
           article: {
@@ -42,6 +47,14 @@ export default async function BriefingDetailPage({
   if (!briefing) {
     notFound();
   }
+
+  const transcriptSegments = parseTranscriptSegments(
+    briefing.transcriptSegments,
+  );
+  const fallbackTranscript = getDisplayTranscript(
+    briefing.transcript,
+    briefing.script,
+  );
 
   return (
     <article className="mx-auto max-w-3xl px-4 py-10">
@@ -83,9 +96,24 @@ export default async function BriefingDetailPage({
 
       <section className="mt-10">
         <h2 className="text-lg font-semibold">Transcript</h2>
-        <div className="mt-3 whitespace-pre-wrap text-neutral-800 dark:text-neutral-200">
-          {getDisplayTranscript(briefing.transcript, briefing.script)}
-        </div>
+        {briefing.audioUrl ? (
+          <SynchronizedTranscript
+            track={{
+              id: briefing.id,
+              title: briefing.title,
+              audioUrl: briefing.audioUrl,
+              detailHref: `/briefings/${briefing.id}`,
+              publishedAtLabel: formatLongDate(briefing.briefingDate),
+              durationSeconds: briefing.durationSeconds,
+            }}
+            segments={transcriptSegments}
+            fallbackText={fallbackTranscript}
+          />
+        ) : (
+          <div className="mt-3 whitespace-pre-wrap text-neutral-800 dark:text-neutral-200">
+            {fallbackTranscript}
+          </div>
+        )}
       </section>
 
       <section className="mt-10">
@@ -134,4 +162,25 @@ function formatLongDate(date: Date) {
     month: "long",
     day: "numeric",
   });
+}
+
+function parseTranscriptSegments(value: unknown): TranscriptSegment[] | null {
+  if (!Array.isArray(value)) return null;
+  const out: TranscriptSegment[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object") return null;
+    const rec = item as Record<string, unknown>;
+    const text = rec.text;
+    const startMs = rec.startMs;
+    const endMs = rec.endMs;
+    if (
+      typeof text !== "string" ||
+      typeof startMs !== "number" ||
+      typeof endMs !== "number"
+    ) {
+      return null;
+    }
+    out.push({ text, startMs, endMs });
+  }
+  return out.length > 0 ? out : null;
 }

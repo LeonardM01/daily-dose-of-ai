@@ -105,6 +105,8 @@ model DailyBriefing {
     script          String          @db.Text
     /// Humanized plain text for display; wording matches what listeners hear.
     transcript      String?         @db.Text
+    /// Array of {text, startMs, endMs} for sentence-level audio sync. Null for legacy briefings.
+    transcriptSegments Json?
     audioUrl        String?
     status          BriefingStatus  @default(PENDING)
     durationSeconds Int?

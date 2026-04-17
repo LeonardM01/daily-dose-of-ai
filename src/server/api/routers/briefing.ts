@@ -61,6 +61,7 @@ export const briefingRouter = createTRPCRouter({
           audioUrl: true,
           script: true,
           transcript: true,
+          transcriptSegments: true,
           sources: {
             include: {
               article: {
