@@ -2,12 +2,12 @@ import {
   BROWSER_USER_AGENT,
   FETCH_TIMEOUT_MS,
   stripHtml,
+  TRENDING_ITEMS_PER_SOURCE,
   type FetchResult,
   type FetchedTrendingItem,
 } from "./types";
 
 const TRENDING_URL = "https://github.com/trending?since=daily";
-const MAX_ITEMS = 10;
 
 function decodeEntities(s: string): string {
   return s
@@ -88,7 +88,7 @@ export async function fetchGithubTrending(): Promise<FetchResult> {
     throw new Error(`GitHub Trending ${res.status} ${res.statusText}`);
   }
   const html = await res.text();
-  const repos = parseTrendingHtml(html).slice(0, MAX_ITEMS);
+  const repos = parseTrendingHtml(html).slice(0, TRENDING_ITEMS_PER_SOURCE);
 
   const items: FetchedTrendingItem[] = repos.map((r) => ({
     source: "GITHUB",

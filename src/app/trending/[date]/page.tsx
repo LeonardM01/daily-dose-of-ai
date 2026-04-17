@@ -1,10 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
-import {
-  TrendingDateStrip,
-  TrendingSnapshotView,
-} from "~/app/_components/trending-view";
+import { TrendingSnapshotWithTabs } from "~/app/_components/trending-snapshot-with-tabs";
 import { db } from "~/server/db";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -67,20 +64,20 @@ export default async function TrendingByDatePage({
 
   return (
     <main className="min-h-screen bg-neutral-50 dark:bg-neutral-950">
-      <div className="mx-auto flex w-full max-w-3xl flex-col gap-10 px-4 py-10">
+      <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-10">
         <Link
           href="/trending"
-          className="text-sm text-violet-600 hover:underline dark:text-violet-400"
+          className="text-sm font-medium text-violet-600 hover:underline dark:text-violet-400"
         >
           ← Back to trending
         </Link>
-        <TrendingSnapshotView snapshot={snapshot} />
-        <TrendingDateStrip
-          dates={archive.map((d) => ({
+        <TrendingSnapshotWithTabs
+          snapshot={snapshot}
+          archiveDates={archive.map((d) => ({
             snapshotDate: d.snapshotDate,
             itemCount: d._count.items,
           }))}
-          activeDate={date}
+          activeDateIso={date}
         />
       </div>
     </main>

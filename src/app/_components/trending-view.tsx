@@ -1,3 +1,5 @@
+"use client";
+
 import Link from "next/link";
 
 import { getSafeHttpUrl } from "~/lib/safe-external-url";
@@ -30,15 +32,96 @@ type SnapshotShape = {
   items: TrendingItemShape[];
 };
 
-export function TrendingSnapshotView({
-  snapshot,
+export type TrendingSnapshotShape = SnapshotShape;
+
+export type TrendingSourceTab = "ALL" | TrendingSource;
+
+export function TrendingSourceTabs({
+  counts,
+  active,
+  onChange,
 }: {
-  snapshot: SnapshotShape;
+  counts: Record<TrendingSource, number>;
+  active: TrendingSourceTab;
+  onChange: (tab: TrendingSourceTab) => void;
 }) {
-  const grouped = groupBySource(snapshot.items);
+  const totalAll = SOURCE_ORDER.reduce((sum, s) => sum + (counts[s] ?? 0), 0);
+
+  const tabButton = (
+    tab: TrendingSourceTab,
+    label: string,
+    count: number,
+    activeClasses: string,
+    inactiveClasses: string,
+  ) => {
+    const isOn = active === tab;
+    return (
+      <button
+        type="button"
+        key={tab}
+        onClick={() => onChange(tab)}
+        className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors ${
+          isOn ? activeClasses : inactiveClasses
+        }`}
+        aria-pressed={isOn}
+      >
+        <span>{label}</span>
+        <span
+          className={
+            isOn
+              ? "tabular-nums opacity-90"
+              : "tabular-nums text-neutral-400 dark:text-neutral-500"
+          }
+        >
+          {count}
+        </span>
+      </button>
+    );
+  };
 
   return (
-    <div className="flex flex-col gap-10">
+    <div className="sticky top-14 z-30 -mx-4 border-b border-neutral-200/80 bg-neutral-50/95 px-4 py-2 backdrop-blur-md dark:border-neutral-800/80 dark:bg-neutral-950/95">
+      <div
+        className="-mx-1 flex gap-1.5 overflow-x-auto overscroll-x-contain px-1 pb-0.5 [-webkit-overflow-scrolling:touch]"
+        role="tablist"
+        aria-label="Trending sources"
+      >
+        {tabButton(
+          "ALL",
+          "All",
+          totalAll,
+          "border-violet-600 bg-violet-600 text-white shadow-sm dark:border-violet-500 dark:bg-violet-600",
+          "border-neutral-200 bg-white text-neutral-700 hover:border-neutral-300 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-200 dark:hover:border-neutral-700",
+        )}
+        {SOURCE_ORDER.map((source) => {
+          const meta = SOURCE_META[source];
+          const n = counts[source] ?? 0;
+          return tabButton(
+            source,
+            meta.shortLabel,
+            n,
+            `${meta.badgeClassName} border-transparent shadow-sm`,
+            "border-neutral-200 bg-white text-neutral-700 hover:border-neutral-300 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-200 dark:hover:border-neutral-700",
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+export function TrendingSnapshotView({
+  snapshot,
+  activeSource = "ALL",
+}: {
+  snapshot: SnapshotShape;
+  activeSource?: TrendingSourceTab;
+}) {
+  const grouped = groupBySource(snapshot.items);
+  const sources: TrendingSource[] =
+    activeSource !== "ALL" ? [activeSource] : [...SOURCE_ORDER];
+
+  return (
+    <div className="flex flex-col gap-8">
       <header className="flex flex-col gap-2">
         <p className="text-xs uppercase tracking-[0.18em] text-neutral-500">
           Snapshot
@@ -46,20 +129,15 @@ export function TrendingSnapshotView({
         <h2 className="text-2xl font-semibold tracking-tight">
           {formatLongDate(snapshot.snapshotDate)}
         </h2>
-        {snapshot.status === "PARTIAL" && (
-          <p className="text-xs text-amber-700 dark:text-amber-300">
-            Some sources failed to load. Showing everything we could grab.
-          </p>
-        )}
       </header>
 
-      <div className="flex flex-col gap-10">
-        {SOURCE_ORDER.map((source) => {
+      <div className="flex flex-col gap-8">
+        {sources.map((source) => {
           const items = grouped.get(source) ?? [];
           const meta = SOURCE_META[source];
           return (
-            <section key={source} className="flex flex-col gap-4">
-              <div className="flex items-end justify-between gap-3 border-b border-neutral-200 pb-3 dark:border-neutral-800">
+            <section key={source} className="flex flex-col gap-3">
+              <div className="flex items-end justify-between gap-3 border-b border-neutral-200 pb-2.5 dark:border-neutral-800">
                 <div className="flex items-center gap-3">
                   <span
                     className={`inline-flex items-center rounded-md px-2.5 py-1 text-xs font-semibold ${meta.badgeClassName}`}
@@ -77,7 +155,7 @@ export function TrendingSnapshotView({
                   Slow news day. No items captured for this source.
                 </p>
               ) : (
-                <ul className="flex flex-col gap-3">
+                <ul className="flex flex-col gap-2">
                   {items.map((item) => (
                     <TrendingItemRow key={item.id} item={item} />
                   ))}
@@ -101,10 +179,11 @@ function TrendingItemRow({ item }: { item: TrendingItemShape }) {
   const comments = formatCount(item.commentCount);
 
   return (
-    <li className="group rounded-xl border border-neutral-200 bg-white p-4 transition-colors hover:border-neutral-300 dark:border-neutral-800 dark:bg-neutral-900 dark:hover:border-neutral-700">
-      <div className="flex items-start gap-4">
+    <li className="group rounded-xl border border-neutral-200 bg-white p-3.5 transition-colors hover:border-neutral-300 dark:border-neutral-800 dark:bg-neutral-900 dark:hover:border-neutral-700">
+      <div className="flex items-start gap-3">
         <span
-          className={`mt-0.5 min-w-6 text-sm font-semibold tabular-nums ${meta.accentTextClassName}`}
+          className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-xs font-bold tabular-nums ring-1 ring-inset ring-current/25 ${meta.accentTextClassName} bg-white dark:bg-neutral-950`}
+          aria-label={`Rank ${item.rank}`}
         >
           {item.rank}
         </span>
@@ -119,7 +198,7 @@ function TrendingItemRow({ item }: { item: TrendingItemShape }) {
           />
         )}
 
-        <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+        <div className="flex min-w-0 flex-1 flex-col gap-1">
           {safeUrl ? (
             <a
               href={safeUrl}
@@ -141,7 +220,7 @@ function TrendingItemRow({ item }: { item: TrendingItemShape }) {
             </p>
           )}
 
-          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-neutral-500">
+          <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-neutral-500">
             {score !== null && (
               <span className="inline-flex items-center gap-1">
                 <span className={meta.accentTextClassName}>
@@ -151,7 +230,9 @@ function TrendingItemRow({ item }: { item: TrendingItemShape }) {
               </span>
             )}
             {comments !== null && (
-              <span>💬 {comments} comments</span>
+              <span>
+                <span aria-hidden>💬</span> {comments} comments
+              </span>
             )}
             {item.subsource && (
               <span className="font-medium text-neutral-600 dark:text-neutral-300">

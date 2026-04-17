@@ -2,6 +2,7 @@ import {
   BROWSER_USER_AGENT,
   FETCH_TIMEOUT_MS,
   trimToSentences,
+  TRENDING_ITEMS_PER_SOURCE,
   type FetchResult,
   type FetchedTrendingItem,
 } from "./types";
@@ -14,8 +15,10 @@ const SUBREDDITS = [
   "artificial",
 ] as const;
 
-const PER_SUB = 3;
-const LIMIT_PARAM = 10;
+/** Minimum Reddit score (ups) to include a post. */
+const MIN_UPVOTES = 100;
+/** Max posts requested per sub (`/top.json` allows up to 100). */
+const LIMIT_PARAM = 100;
 
 type RedditListing = {
   data?: {
@@ -81,6 +84,10 @@ async function fetchSub(sub: string): Promise<RedditPost[]> {
   throw lastErr instanceof Error ? lastErr : new Error(`Reddit fetch failed for r/${sub}`);
 }
 
+function redditUpvotes(p: RedditPost): number {
+  return p.ups ?? p.score ?? 0;
+}
+
 function decodeRedditUrl(raw: string): string {
   return raw.replace(/&amp;/g, "&");
 }
@@ -130,7 +137,7 @@ export async function fetchReddit(): Promise<FetchResult> {
       const posts = await fetchSub(sub);
       return posts
         .filter((p) => !p.stickied && !p.over_18)
-        .slice(0, PER_SUB)
+        .filter((p) => redditUpvotes(p) >= MIN_UPVOTES)
         .map((p) => mapPost(p, sub))
         .filter((x): x is FetchedTrendingItem => x !== null);
     }),
@@ -140,5 +147,8 @@ export async function fetchReddit(): Promise<FetchResult> {
     r.status === "fulfilled" ? r.value : [],
   );
 
-  return { source: "REDDIT", items };
+  items.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+  const top = items.slice(0, TRENDING_ITEMS_PER_SOURCE);
+
+  return { source: "REDDIT", items: top };
 }

@@ -33,6 +33,7 @@ Next.js (T3) app: daily **5–7 minute** AI/tech audio briefings from curated RS
      - `R2_SECRET_ACCESS_KEY`
      - `R2_PUBLIC_BASE_URL`
    - `CRON_SECRET`: required to call `/api/cron/daily` (local or production). Use `Authorization: Bearer <CRON_SECRET>`. Without it, the route returns `503`.
+   - Product Hunt for `/api/cron/trending` (homepage returns `403` without auth): set **`PRODUCT_HUNT_TOKEN`** to the **developer token** from [API applications](https://www.producthunt.com/v2/oauth/applications), *or* set **`PRODUCT_HUNT_CLIENT_ID`** and **`PRODUCT_HUNT_CLIENT_SECRET`** so the app can exchange them for an access token. The app **secret** alone is not a valid Bearer token.
    - Optional: `TTS_VOICE_NAME` if you want to override the default Chirp voice. Example: `en-US-Chirp3-HD-Despina`.
 
 3. **Database**

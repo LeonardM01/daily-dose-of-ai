@@ -22,6 +22,11 @@ export const env = createEnv({
         "Encryption secret: openssl rand -base64 32, openssl rand -hex 32, or any passphrase (8+ chars)",
       ),
     CRON_SECRET: z.string().optional(),
+    /** Developer token from https://www.producthunt.com/v2/oauth/applications (Bearer for GraphQL). */
+    PRODUCT_HUNT_TOKEN: z.string().optional(),
+    /** With PRODUCT_HUNT_CLIENT_SECRET, exchanges for an access_token (use if you only have OAuth app credentials, not the developer token). */
+    PRODUCT_HUNT_CLIENT_ID: z.string().optional(),
+    PRODUCT_HUNT_CLIENT_SECRET: z.string().optional(),
   },
 
   client: {},
@@ -38,6 +43,9 @@ export const env = createEnv({
     NODE_ENV: process.env.NODE_ENV,
     APP_ENCRYPTION_KEY: process.env.APP_ENCRYPTION_KEY,
     CRON_SECRET: process.env.CRON_SECRET,
+    PRODUCT_HUNT_TOKEN: process.env.PRODUCT_HUNT_TOKEN,
+    PRODUCT_HUNT_CLIENT_ID: process.env.PRODUCT_HUNT_CLIENT_ID,
+    PRODUCT_HUNT_CLIENT_SECRET: process.env.PRODUCT_HUNT_CLIENT_SECRET,
   },
   skipValidation: !!process.env.SKIP_ENV_VALIDATION,
   emptyStringAsUndefined: true,

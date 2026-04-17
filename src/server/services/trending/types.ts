@@ -24,6 +24,9 @@ export const BROWSER_USER_AGENT =
 
 export const FETCH_TIMEOUT_MS = 15000;
 
+/** Max items stored per trending source (HN, Reddit, PH, GitHub). */
+export const TRENDING_ITEMS_PER_SOURCE = 10;
+
 export function trimToSentences(raw: string, maxSentences = 2): string {
   const text = raw.replace(/\s+/g, " ").trim();
   if (!text) return "";

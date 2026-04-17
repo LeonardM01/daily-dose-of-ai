@@ -3,6 +3,7 @@ import {
   FETCH_TIMEOUT_MS,
   stripHtml,
   trimToSentences,
+  TRENDING_ITEMS_PER_SOURCE,
   type FetchResult,
   type FetchedTrendingItem,
 } from "./types";
@@ -12,7 +13,6 @@ const ITEM_URL = (id: number) =>
   `https://hacker-news.firebaseio.com/v0/item/${id}.json`;
 
 const TOP_IDS_TO_SCAN = 30;
-const MAX_ITEMS = 10;
 const DAY_SECONDS = 86_400;
 
 type HnItem = {
@@ -81,7 +81,7 @@ export async function fetchHackerNews(): Promise<FetchResult> {
         typeof it.title === "string",
     )
     .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
-    .slice(0, MAX_ITEMS);
+    .slice(0, TRENDING_ITEMS_PER_SOURCE);
 
   const mapped: FetchedTrendingItem[] = items.map((it) => {
     const title = it.title ?? "(untitled)";
