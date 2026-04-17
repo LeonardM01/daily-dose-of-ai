@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true">
+  <style>
+    .t {
+      fill: none;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      stroke: #7c3aed;
+    }
+    @media (prefers-color-scheme: dark) {
+      .t {
+        stroke: #c4b5fd;
+      }
+    }
+  </style>
+  <path class="t" d="M3 17l6-6 4 4 7-7" />
+  <path class="t" d="M14 7h7v7" />
+</svg>

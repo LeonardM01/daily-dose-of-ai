@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
 
 import { env } from "~/env";
-import { runDailyBriefingPipeline } from "~/server/services/jobs/daily-briefing";
+import { runTrendingSnapshot } from "~/server/services/trending/snapshot";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 300;
+export const maxDuration = 120;
 export const runtime = "nodejs";
 
 export async function GET(request: Request) {
@@ -20,12 +20,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const url = new URL(request.url);
-  const forceRegenerate = url.searchParams.get("force") === "1";
-
-  const result = await runDailyBriefingPipeline(
-    forceRegenerate ? { forceRegenerate: true } : undefined,
-  );
+  const result = await runTrendingSnapshot();
 
   if (!result.ok) {
     return NextResponse.json(result, { status: 500 });

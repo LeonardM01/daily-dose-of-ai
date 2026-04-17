@@ -4,12 +4,12 @@ import { Prisma } from "../../../../generated/prisma";
 import { ensureDefaultFeeds } from "~/server/data/default-feeds";
 import { db } from "~/server/db";
 import { env } from "~/env";
- import {
-   generateBriefingScript,
-   generateBriefingSsml,
-   humanizeTranscript,
-   type ScriptAttemptRecorder,
- } from "~/server/services/briefing/generate-script";
+import {
+  generateBriefingScript,
+  generateBriefingSsml,
+  humanizeTranscript,
+  type ScriptAttemptRecorder,
+} from "~/server/services/briefing/generate-script";
 import { storeBriefingAudio } from "~/server/services/briefing/store-audio";
 import { synthesizeChirpHdSegmented } from "~/server/services/briefing/synthesize-audio";
 import {
@@ -200,23 +200,54 @@ export type RunDailyBriefingResult =
       briefingId: string;
       audioUrl: string;
       jobRunId: string;
+      regenerated?: boolean;
     }
   | { ok: false; error: string };
 
-export async function runDailyBriefingPipeline(): Promise<RunDailyBriefingResult> {
+export type RunDailyBriefingPipelineOptions = {
+  forceRegenerate?: boolean;
+};
+
+export async function runDailyBriefingPipeline(
+  options?: RunDailyBriefingPipelineOptions,
+): Promise<RunDailyBriefingResult> {
+  const forceRegenerate = options?.forceRegenerate === true;
   const briefingDate = utcStartOfDay();
   const dateLabel = formatBriefingDateLabel(briefingDate);
 
   const existing = await db.dailyBriefing.findUnique({
     where: { briefingDate },
   });
-  if (existing?.status === "COMPLETED") {
+  if (existing?.status === "COMPLETED" && !forceRegenerate) {
     return { ok: true, skipped: true, reason: "Briefing already completed for this day." };
   }
 
   const lock = await acquireJobLock(briefingDate);
   if (!lock.ok) {
     return lock.result;
+  }
+
+  const rowToReset = await db.dailyBriefing.findUnique({
+    where: { briefingDate },
+  });
+  let regeneratedExisting = false;
+  if (forceRegenerate && rowToReset) {
+    regeneratedExisting = true;
+    await db.$transaction([
+      db.briefingSource.deleteMany({ where: { briefingId: rowToReset.id } }),
+      db.dailyBriefing.update({
+        where: { id: rowToReset.id },
+        data: {
+          title: `Generating — ${dateLabel}`,
+          script: "",
+          transcript: null,
+          audioUrl: null,
+          durationSeconds: null,
+          status: "GENERATING",
+          errorMessage: null,
+        },
+      }),
+    ]);
   }
 
   const idempotencyKey = `daily-${dateLabel}-${randomUUID()}`;
@@ -270,10 +301,20 @@ export async function runDailyBriefingPipeline(): Promise<RunDailyBriefingResult
         script: "",
         status: "GENERATING",
       },
-      update: {
-        status: "GENERATING",
-        errorMessage: null,
-      },
+      update: forceRegenerate
+        ? {
+            title: `Generating — ${dateLabel}`,
+            script: "",
+            transcript: null,
+            audioUrl: null,
+            durationSeconds: null,
+            status: "GENERATING",
+            errorMessage: null,
+          }
+        : {
+            status: "GENERATING",
+            errorMessage: null,
+          },
     });
 
     await ensureDefaultFeeds(db);
@@ -416,6 +457,7 @@ export async function runDailyBriefingPipeline(): Promise<RunDailyBriefingResult
       briefingId: briefingRow.id,
       audioUrl,
       jobRunId: jobRun.id,
+      ...(regeneratedExisting ? { regenerated: true } : {}),
     };
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
