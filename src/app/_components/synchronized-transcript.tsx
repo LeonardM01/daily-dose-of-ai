@@ -124,7 +124,7 @@ export function SynchronizedTranscript({
       </div>
 
       <ol
-        className="relative max-h-[70vh] space-y-1 overflow-y-auto px-3 py-4 sm:px-5 sm:py-6"
+        className="relative max-h-[70vh] space-y-1 overflow-y-auto px-3 py-4 sm:px-5 sm:py-6 [scrollbar-width:thin] [scrollbar-color:rgba(115_115_115_0.55)_transparent] dark:[scrollbar-color:rgba(82_82_91_0.7)_transparent] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-neutral-400/60 [&::-webkit-scrollbar-thumb]:shadow-inner hover:[&::-webkit-scrollbar-thumb]:bg-neutral-500/80 dark:[&::-webkit-scrollbar-thumb]:bg-neutral-600/90 dark:hover:[&::-webkit-scrollbar-thumb]:bg-neutral-500/90"
         role="list"
       >
         {segments.map((segment, index) => {
@@ -132,7 +132,7 @@ export function SynchronizedTranscript({
           const isPast = activeIndex > -1 && index < activeIndex;
 
           const baseClasses =
-            "block w-full rounded-2xl px-4 py-2.5 text-left text-lg leading-relaxed transition-[opacity,transform,color,background-color,box-shadow] duration-300 ease-out motion-reduce:transition-none sm:text-xl";
+            "min-w-0 flex-1 rounded-2xl px-4 py-2.5 text-left text-lg leading-relaxed transition-[opacity,transform,color,background-color,box-shadow] duration-300 ease-out motion-reduce:transition-none sm:text-xl";
 
           const stateClasses = isActive
             ? "scale-[1.015] bg-violet-50/80 font-semibold text-neutral-950 opacity-100 shadow-[0_4px_24px_-12px_rgba(139,92,246,0.45)] dark:bg-violet-500/10 dark:text-white"
@@ -146,18 +146,24 @@ export function SynchronizedTranscript({
               ref={(el) => {
                 itemRefs.current[index] = el;
               }}
-              className="relative"
+              className="flex items-stretch gap-3"
             >
-              {isActive && (
+              <div
+                className="flex w-1.5 shrink-0 flex-col"
+                aria-hidden
+              >
                 <span
-                  aria-hidden
-                  className="pointer-events-none absolute left-0 top-1/2 h-6 w-1 -translate-y-1/2 rounded-r-full bg-violet-500"
+                  className={`min-h-0 flex-1 rounded-r-full transition-colors duration-300 ${
+                    isActive
+                      ? "bg-violet-500 shadow-[2px_0_12px_-2px_rgba(139,92,246,0.55)]"
+                      : "bg-transparent"
+                  }`}
                 />
-              )}
+              </div>
               <button
                 type="button"
                 onClick={() => handleJump(index)}
-                className={`${baseClasses} ${stateClasses} cursor-pointer text-neutral-800 dark:text-neutral-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-neutral-950`}
+                className={`${baseClasses} ${stateClasses} block w-full cursor-pointer text-neutral-800 dark:text-neutral-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-neutral-950`}
                 aria-current={isActive ? "true" : undefined}
               >
                 {segment.text}
