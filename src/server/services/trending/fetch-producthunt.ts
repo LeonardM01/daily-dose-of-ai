@@ -51,8 +51,8 @@ async function fetchProductHuntAccessToken(
 }
 
 const TRENDING_POSTS_QUERY = `
-  query TrendingPosts($first: Int!) {
-    posts(first: $first, order: VOTES) {
+  query TrendingPosts($first: Int!, $postedAfter: DateTime!) {
+    posts(first: $first, order: VOTES, postedAfter: $postedAfter) {
       edges {
         node {
           id
@@ -269,7 +269,10 @@ async function fetchProductHuntGraphQL(token: string): Promise<FetchResult> {
     },
     body: JSON.stringify({
       query: TRENDING_POSTS_QUERY,
-      variables: { first: MAX_ITEMS },
+      variables: {
+        first: MAX_ITEMS,
+        postedAfter: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+      },
     }),
     signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     cache: "no-store",
