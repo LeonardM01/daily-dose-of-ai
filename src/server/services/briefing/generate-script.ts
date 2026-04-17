@@ -103,8 +103,8 @@ ${JSON.stringify(payload)}`;
     transcriptPrompt,
     recordAttempt,
   );
-  let tokensInput = transcriptResult.tokensInput;
-  let tokensOutput = transcriptResult.tokensOutput;
+  const tokensInput = transcriptResult.tokensInput;
+  const tokensOutput = transcriptResult.tokensOutput;
   let script = transcriptResult.script;
 
   if (!script) {

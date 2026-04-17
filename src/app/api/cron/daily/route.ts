@@ -20,7 +20,12 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const result = await runDailyBriefingPipeline();
+  const url = new URL(request.url);
+  const forceRegenerate = url.searchParams.get("force") === "1";
+
+  const result = await runDailyBriefingPipeline(
+    forceRegenerate ? { forceRegenerate: true } : undefined,
+  );
 
   if (!result.ok) {
     return NextResponse.json(result, { status: 500 });
