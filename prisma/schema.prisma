@@ -193,3 +193,51 @@ model JobLock {
     runId        String
     lockedAt     DateTime @default(now())
 }
+
+model TrendingSnapshot {
+    id           String                 @id @default(cuid())
+    snapshotDate DateTime               @unique
+    status       TrendingSnapshotStatus @default(GENERATING)
+    errorMessage String?                @db.Text
+    createdAt    DateTime               @default(now())
+    updatedAt    DateTime               @updatedAt
+    items        TrendingItem[]
+
+    @@index([snapshotDate])
+}
+
+enum TrendingSnapshotStatus {
+    GENERATING
+    COMPLETED
+    PARTIAL
+    FAILED
+}
+
+enum TrendingSource {
+    HACKER_NEWS
+    REDDIT
+    PRODUCT_HUNT
+    GITHUB
+}
+
+model TrendingItem {
+    id           String           @id @default(cuid())
+    snapshotId   String
+    snapshot     TrendingSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+    source       TrendingSource
+    externalId   String
+    rank         Int
+    title        String           @db.Text
+    url          String           @db.Text
+    description  String?          @db.Text
+    score        Int?
+    commentCount Int?
+    author       String?
+    subsource    String?
+    thumbnailUrl String?          @db.Text
+    metadata     Json?
+    createdAt    DateTime         @default(now())
+
+    @@unique([snapshotId, source, externalId])
+    @@index([snapshotId, source, rank])
+}
