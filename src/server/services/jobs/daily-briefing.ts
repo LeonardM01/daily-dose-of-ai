@@ -396,16 +396,25 @@ export async function runDailyBriefingPipeline(
       REDDIT: "REDDIT",
     };
 
-    const trendingCandidates: Candidate[] = trendingItems.map((it) => ({
-      id: `trending:${it.id}`,
-      title: it.title,
-      url: it.url,
-      sourceName: trendingSourceLabel(it.source, it.subsource),
-      excerpt: it.description,
-      publishedAt: it.createdAt,
-      sourceKind: SOURCE_KIND[it.source],
-      engagement: it.score ?? 0,
-    }));
+    const trendingCandidates: Candidate[] = trendingItems.map((it) => {
+      // GitHub stores total star count in score (can be 50k+); use starsToday
+      // from metadata so engagement reflects daily momentum, not repo age.
+      const engagement =
+        it.source === "GITHUB"
+          ? ((it.metadata as { starsToday?: number | null } | null)
+              ?.starsToday ?? it.score ?? 0)
+          : (it.score ?? 0);
+      return {
+        id: `trending:${it.id}`,
+        title: it.title,
+        url: it.url,
+        sourceName: trendingSourceLabel(it.source, it.subsource),
+        excerpt: it.description,
+        publishedAt: it.createdAt,
+        sourceKind: SOURCE_KIND[it.source],
+        engagement,
+      };
+    });
 
     const rssCandidates: Candidate[] = curatedArticles.map((a) => ({
       id: a.id,
