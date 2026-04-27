@@ -1,10 +1,20 @@
 import type { PrismaClient } from "../../../generated/prisma";
 
-/** Curated RSS feeds for the daily briefing pipeline (see project plan). */
+/**
+ * Curated RSS feeds for the daily briefing pipeline.
+ *
+ * Source policy: the briefing's primary candidate pool comes from the
+ * trending snapshot (HN top, Product Hunt, GitHub trending, Reddit). RSS
+ * here supplements with low-volume, high-signal primary-source coverage
+ * (official Claude/Google/YC posts). High-volume firehose feeds (dev.to,
+ * Medium, HN Newest/Front, TechCrunch AI) are kept in this list with
+ * `enabled: false` so they remain disabled across re-seeds.
+ */
 export const DEFAULT_FEEDS: {
   name: string;
   url: string;
   category: string | null;
+  enabled?: boolean;
 }[] = [
   {
     name: "Anthropic — Newsroom",
@@ -20,17 +30,25 @@ export const DEFAULT_FEEDS: {
     name: "Hacker News — Front page",
     url: "https://news.ycombinator.com/rss",
     category: "community",
+    enabled: false,
   },
   {
     name: "Hacker News — Newest",
     url: "https://hnrss.org/newest",
     category: "community",
+    enabled: false,
   },
-  { name: "DEV — tag ai", url: "https://dev.to/feed/tag/ai", category: "dev" },
+  {
+    name: "DEV — tag ai",
+    url: "https://dev.to/feed/tag/ai",
+    category: "dev",
+    enabled: false,
+  },
   {
     name: "DEV — tag programming",
     url: "https://dev.to/feed/tag/programming",
     category: "dev",
+    enabled: false,
   },
   {
     name: "Google AI Blog",
@@ -41,11 +59,13 @@ export const DEFAULT_FEEDS: {
     name: "Medium — The Generator",
     url: "https://medium.com/feed/the-generator",
     category: "medium",
+    enabled: false,
   },
   {
     name: "Medium — Towards AI",
     url: "https://pub.towardsai.net/feed",
     category: "medium",
+    enabled: false,
   },
   {
     name: "Y Combinator Blog",
@@ -56,12 +76,14 @@ export const DEFAULT_FEEDS: {
     name: "TechCrunch — AI",
     url: "https://techcrunch.com/category/artificial-intelligence/feed/",
     category: "news",
+    enabled: false,
   },
 ];
 
 export async function ensureDefaultFeeds(db: PrismaClient): Promise<void> {
   await Promise.all(
     DEFAULT_FEEDS.map(async (feed) => {
+      const enabled = feed.enabled ?? true;
       const existingByName = await db.sourceFeed.findFirst({
         where: { name: feed.name },
       });
@@ -72,7 +94,7 @@ export async function ensureDefaultFeeds(db: PrismaClient): Promise<void> {
           data: {
             url: feed.url,
             category: feed.category,
-            enabled: true,
+            enabled,
           },
         });
         return;
@@ -84,12 +106,12 @@ export async function ensureDefaultFeeds(db: PrismaClient): Promise<void> {
           name: feed.name,
           url: feed.url,
           category: feed.category,
-          enabled: true,
+          enabled,
         },
         update: {
           name: feed.name,
           category: feed.category,
-          enabled: true,
+          enabled,
         },
       });
     }),

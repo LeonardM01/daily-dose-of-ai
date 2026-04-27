@@ -22,7 +22,7 @@ export type StoryInput = {
   excerpt: string | null;
 };
 
-const TARGET_SCRIPT_MAX_CHARS = 14000;
+const TARGET_SCRIPT_MAX_CHARS = 7000;
 type PromptStoryPayload = {
   title: string;
   url: string;
@@ -71,28 +71,29 @@ export async function generateBriefingScript(
     corroboratingCoverage: s.supportingLinks.slice(0, 5),
   }));
 
-  const transcriptPrompt = `You write scripts for a thorough daily tech/AI news audio briefing called "Daily Dose of AI".
+  const transcriptPrompt = `You write the script for "Daily Dose of AI", a short daily audio briefing for developers.
 Date for this episode: ${dateLabel}
 
-Write a single continuous script for the host to read aloud. Target length is 6.5 to 7.5 minutes when read at a moderate pace. Aim for roughly 1400 to 1800 words. The plain transcript MUST stay under ${TARGET_SCRIPT_MAX_CHARS} characters total.
+Voice: You are a knowledgeable dev friend catching the listener up over coffee. Contractions always. Short sentences. Asides welcome. First-person opinion allowed if directly supported by the source. Not a news anchor — a smart friend who actually read the stuff.
+
+Example of the target voice (do NOT copy — just match the register):
+"Okay so Anthropic dropped Claude 3.7 yesterday and honestly the headline stat is wild — 700 tokens a second on Sonnet. That's fast enough that streaming barely feels like streaming anymore. The thing I keep coming back to is the new extended thinking mode: it's not just more compute, it's a different kind of reasoning trace. If you're building agents, this changes the math on when to burn tokens."
+
+Story count: write 8 to 10 stories. Pick the most dev-builder-interesting from the list.
+Per-story word cap: roughly 70 words per story — be punchy, not thorough.
+Total target: 700 to 900 words (~5 minutes at 140 wpm). The plain transcript MUST stay under ${TARGET_SCRIPT_MAX_CHARS} characters total.
 
 Rules:
-- Start with a 1-2 sentence welcome that includes the date.
-- Cover the stories in order of global importance.
-- Cover at least 12 stories when enough material is provided.
-- Spend 3-5 sentences on each major story, and 2-3 sentences on smaller but still relevant stories.
-- For each story: give context, what happened, and why it matters; mention the outlet or primary source by name.
-- If a story has corroborating coverage from multiple outlets, mention that briefly in one sentence, for example "covered by Anthropic and TechCrunch" or "discussed on Hacker News and reported by Anthropic."
-- Include brief transitions so the episode feels like a coherent morning briefing instead of a list.
-- Do not invent facts beyond the excerpts; if detail is missing, speak generally.
-- Prefer completeness over punchiness; do not end early if there are still important stories to cover.
-- Do not produce a short summary. This should feel like a full morning rundown with substantially more detail than a headline recap.
-- End with a brief sign-off.
+- Open with one casual sentence that includes the date. Not "Welcome to" — just dive in.
+- Cover stories in the order given. The list is already ranked by relevance.
+- For each story: one sentence of what happened, one sentence of why a dev cares. Clip the rest.
+- Use the "note" field as context for why the story ranked — do not read it aloud.
+- Mention the source by name naturally ("Hacker News is buzzing about…", "Anthropic just posted…").
+- Contractions required. Avoid: utilize, leverage, delve, groundbreaking, revolutionary, robust, seamlessly, ecosystem, paradigm, showcase, facilitate, demonstrate, notably, it's worth noting, in conclusion.
+- No invented facts. If detail is missing, say less.
+- End with one casual sign-off sentence. No "thank you for listening" — just wrap it.
 - No stage directions, no bullet points, no markdown, no URLs spoken letter-by-letter.
-- Return ONLY the plain spoken transcript text.
-- Do not return JSON.
-- Do not return SSML.
-- Do not use markdown.
+- Return ONLY the plain spoken transcript text. No JSON. No SSML. No markdown.
 
 Stories JSON:
 ${JSON.stringify(payload)}`;
