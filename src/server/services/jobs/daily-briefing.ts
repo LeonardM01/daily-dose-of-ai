@@ -1,6 +1,6 @@
 import { randomUUID } from "crypto";
 
-import { Prisma } from "../../../../generated/prisma";
+import { Prisma, type TrendingSource } from "../../../../generated/prisma";
 import { ensureDefaultFeeds } from "~/server/data/default-feeds";
 import { db } from "~/server/db";
 import { env } from "~/env";
@@ -12,13 +12,14 @@ import {
 } from "~/server/services/briefing/generate-script";
 import { storeBriefingAudio } from "~/server/services/briefing/store-audio";
 import { synthesizeChirpHd } from "~/server/services/briefing/synthesize-audio";
-import {
-  clusterArticles,
-  rankStoriesWithGemini,
-  type ArticleForRank,
-  type RankingAttemptRecorder,
-} from "~/server/services/news/dedupe-rank";
 import { ingestAllEnabledFeeds } from "~/server/services/news/ingest";
+import {
+  selectTopClusters,
+  type Candidate,
+  type CandidateSourceKind,
+  type ScoredCluster,
+} from "~/server/services/news/score-rank";
+import { runTrendingSnapshot } from "~/server/services/trending/snapshot";
 
 export function utcStartOfDay(d = new Date()): Date {
   return new Date(
@@ -192,6 +193,44 @@ async function acquireJobLock(
   }
 }
 
+function trendingSourceLabel(
+  source: TrendingSource,
+  subsource: string | null,
+): string {
+  switch (source) {
+    case "HACKER_NEWS":
+      return "Hacker News";
+    case "PRODUCT_HUNT":
+      return "Product Hunt";
+    case "GITHUB":
+      return "GitHub Trending";
+    case "REDDIT":
+      return subsource ? `Reddit (${subsource})` : "Reddit";
+  }
+}
+
+function buildReason(
+  cluster: ScoredCluster,
+  trendingItemById: Map<string, { source: TrendingSource; score: number | null; commentCount: number | null; subsource: string | null }>,
+): string {
+  const trending = trendingItemById.get(cluster.representativeArticleId);
+  if (!trending) {
+    return `Primary source: ${cluster.sourceNames.join(", ")}.`;
+  }
+  const score = trending.score ?? 0;
+  const comments = trending.commentCount ?? 0;
+  switch (trending.source) {
+    case "HACKER_NEWS":
+      return `Trending on Hacker News — ${score} points, ${comments} comments.`;
+    case "PRODUCT_HUNT":
+      return `Trending on Product Hunt — ${score} upvotes.`;
+    case "GITHUB":
+      return `Trending on GitHub — ${score} stars today.`;
+    case "REDDIT":
+      return `Trending on Reddit${trending.subsource ? ` (${trending.subsource})` : ""} — ${score} upvotes.`;
+  }
+}
+
 export type RunDailyBriefingResult =
   | { ok: true; skipped: true; reason: string }
   | {
@@ -269,9 +308,7 @@ export async function runDailyBriefingPipeline(
   let tokensInputTotal = 0;
   let tokensOutputTotal = 0;
   let ttsChars = 0;
-  const recordAttempt: RankingAttemptRecorder & ScriptAttemptRecorder = async (
-    attempt,
-  ) => {
+  const recordAttempt: ScriptAttemptRecorder = async (attempt) => {
     await recordGenerationAttempt({
       jobRunId: jobRun.id,
       stage: attempt.stage,
@@ -317,60 +354,98 @@ export async function runDailyBriefingPipeline(
           },
     });
 
+    // Refresh today's trending snapshot before consuming it (chains the
+    // standalone 23:00 UTC trending cron so the briefing always has fresh data).
+    const trendingSnapshotResult = await runTrendingSnapshot();
+    if (!trendingSnapshotResult.ok) {
+      console.warn("[daily-briefing] trending snapshot refresh failed", {
+        error: trendingSnapshotResult.error,
+      });
+    }
+
     await ensureDefaultFeeds(db);
     const ingest = await ingestAllEnabledFeeds(db);
     if (ingest.errors.length) {
       console.warn("[ingest] feed errors", ingest.errors);
     }
 
+    // Curated RSS pool: last 48h from enabled feeds only.
+    // Firehose feeds (dev.to, Medium, HN RSS, TechCrunch) are disabled in
+    // default-feeds.ts; only low-volume primary-source feeds remain active.
     const since = new Date(Date.now() - 48 * 60 * 60 * 1000);
-    const rawArticles = await db.sourceArticle.findMany({
+    const curatedArticles = await db.sourceArticle.findMany({
       where: {
-        OR: [
-          { publishedAt: { gte: since } },
-          { createdAt: { gte: since } },
-        ],
+        OR: [{ publishedAt: { gte: since } }, { createdAt: { gte: since } }],
+        feed: { enabled: true },
       },
       orderBy: [{ publishedAt: "desc" }, { createdAt: "desc" }],
-      take: 400,
+      take: 200,
     });
 
-    const forRank: ArticleForRank[] = rawArticles.map((a) => ({
+    // Today's trending items (refreshed above).
+    const todaySnapshot = await db.trendingSnapshot.findUnique({
+      where: { snapshotDate: briefingDate },
+      include: { items: { orderBy: { rank: "asc" } } },
+    });
+    const trendingItems = todaySnapshot?.items ?? [];
+
+    const SOURCE_KIND: Record<TrendingSource, CandidateSourceKind> = {
+      HACKER_NEWS: "HN",
+      PRODUCT_HUNT: "PH",
+      GITHUB: "GH",
+      REDDIT: "REDDIT",
+    };
+
+    const trendingCandidates: Candidate[] = trendingItems.map((it) => ({
+      id: `trending:${it.id}`,
+      title: it.title,
+      url: it.url,
+      sourceName: trendingSourceLabel(it.source, it.subsource),
+      excerpt: it.description,
+      publishedAt: it.createdAt,
+      sourceKind: SOURCE_KIND[it.source],
+      engagement: it.score ?? 0,
+    }));
+
+    const rssCandidates: Candidate[] = curatedArticles.map((a) => ({
       id: a.id,
       title: a.title,
       url: a.url,
       sourceName: a.sourceName,
       excerpt: a.excerpt,
+      publishedAt: a.publishedAt ?? a.createdAt,
+      sourceKind: "RSS" as const,
+      engagement: 0,
     }));
 
-    const clusters = clusterArticles(forRank);
-    const { ranked, tokensInput: trIn, tokensOutput: trOut } =
-      await rankStoriesWithGemini(googleAiKey, clusters, recordAttempt);
-    tokensInputTotal += trIn;
-    tokensOutputTotal += trOut;
+    const clusters = selectTopClusters(
+      [...trendingCandidates, ...rssCandidates],
+      { topN: 12 },
+    );
 
-    const clustersById = new Map(clusters.map((cluster) => [cluster.id, cluster]));
-    const stories = ranked
-      .map((r) => {
-        const cluster = clustersById.get(r.clusterId);
-        if (!cluster) return null;
-        return {
-          articleId: cluster.representativeArticleId,
-          articleIds: cluster.articleIds,
-          reason: r.reason,
-          title: cluster.title,
-          url: cluster.primaryUrl,
-          sourceName: cluster.sourceNames[0] ?? "Unknown source",
-          sourceNames: cluster.sourceNames,
-          supportingLinks: cluster.supportingLinks,
-          excerpt: cluster.excerpt,
-        };
-      })
-      .filter(Boolean) as Parameters<typeof generateBriefingScript>[1];
-
-    if (stories.length === 0) {
-      throw new Error("No stories selected after ranking. Try again after feeds populate.");
+    if (clusters.length === 0) {
+      throw new Error(
+        "No stories selected after scoring. Try again after feeds populate.",
+      );
     }
+
+    const trendingItemById = new Map(
+      trendingItems.map((it) => [`trending:${it.id}`, it]),
+    );
+    const rssIdSet = new Set(rssCandidates.map((c) => c.id));
+
+    const stories = clusters.map((cluster) => ({
+      articleId: cluster.representativeArticleId,
+      // Only persist SourceArticle IDs — trending items have no SourceArticle row.
+      articleIds: cluster.articleIds.filter((id) => rssIdSet.has(id)),
+      reason: buildReason(cluster, trendingItemById),
+      title: cluster.title,
+      url: cluster.primaryUrl,
+      sourceName: cluster.sourceNames[0] ?? "Unknown source",
+      sourceNames: cluster.sourceNames,
+      supportingLinks: cluster.supportingLinks,
+      excerpt: cluster.excerpt,
+    })) as Parameters<typeof generateBriefingScript>[1];
 
     const {
       title,
