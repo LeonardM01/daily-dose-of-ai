@@ -20,7 +20,6 @@ import {
   type Candidate,
   type ScoredCluster,
 } from "~/server/services/news/score-rank";
-import { runTrendingSnapshot } from "~/server/services/trending/snapshot";
 
 export function utcStartOfDay(d = new Date()): Date {
   return new Date(
@@ -212,7 +211,16 @@ function trendingSourceLabel(
 
 function buildReason(
   cluster: ScoredCluster,
-  trendingItemById: Map<string, { source: TrendingSource; score: number | null; commentCount: number | null; subsource: string | null }>,
+  trendingItemById: Map<
+    string,
+    {
+      source: TrendingSource;
+      score: number | null;
+      commentCount: number | null;
+      subsource: string | null;
+      starsToday: number | null;
+    }
+  >,
 ): string {
   const trending = trendingItemById.get(cluster.representativeArticleId);
   if (!trending) {
@@ -226,10 +234,63 @@ function buildReason(
     case "PRODUCT_HUNT":
       return `Trending on Product Hunt — ${score} upvotes.`;
     case "GITHUB":
-      return `Trending on GitHub — ${score} stars today.`;
+      return trending.starsToday != null
+        ? `Trending on GitHub — ${trending.starsToday} stars today.`
+        : "Trending on GitHub.";
     case "REDDIT":
       return `Trending on Reddit${trending.subsource ? ` (${trending.subsource})` : ""} — ${score} upvotes.`;
   }
+}
+
+async function ensureTrendingSourceArticles(
+  trendingItems: Array<{
+    id: string;
+    title: string;
+    url: string;
+    source: TrendingSource;
+    description: string | null;
+    subsource: string | null;
+  }>,
+): Promise<Map<string, string>> {
+  const byTrendingItemId = new Map<string, string>();
+  if (trendingItems.length === 0) return byTrendingItemId;
+
+  const results = await Promise.allSettled(
+    trendingItems.map(async (it) => {
+      const sourceName = trendingSourceLabel(it.source, it.subsource);
+      const article = await db.sourceArticle.upsert({
+        where: { url: it.url },
+        create: {
+          url: it.url,
+          title: it.title,
+          sourceName,
+          excerpt: it.description,
+          feedId: null,
+          publishedAt: null,
+        },
+        update: {
+          title: it.title,
+          sourceName,
+          excerpt: it.description,
+          feedId: null,
+        },
+        select: { id: true },
+      });
+      return { trendingItemId: it.id, sourceArticleId: article.id };
+    }),
+  );
+
+  for (const res of results) {
+    if (res.status === "fulfilled") {
+      byTrendingItemId.set(res.value.trendingItemId, res.value.sourceArticleId);
+      continue;
+    }
+    console.warn("[daily-briefing] failed to upsert trending SourceArticle", {
+      error: res.reason instanceof Error ? res.reason.message : String(res.reason),
+    });
+  }
+
+  return byTrendingItemId;
 }
 
 export type RunDailyBriefingResult =
@@ -355,13 +416,6 @@ export async function runDailyBriefingPipeline(
           },
     });
 
-    const trendingSnapshotResult = await runTrendingSnapshot();
-    if (!trendingSnapshotResult.ok) {
-      console.warn("[daily-briefing] trending snapshot refresh failed", {
-        error: trendingSnapshotResult.error,
-      });
-    }
-
     await ensureDefaultFeeds(db);
     const ingest = await ingestAllEnabledFeeds(db);
     if (ingest.errors.length) {
@@ -370,11 +424,16 @@ export async function runDailyBriefingPipeline(
 
     const since = new Date(Date.now() - 48 * 60 * 60 * 1000);
 
-    const todaySnapshot = await db.trendingSnapshot.findUnique({
-      where: { snapshotDate: briefingDate },
+    const latestSnapshot = await db.trendingSnapshot.findFirst({
+      where: {
+        snapshotDate: { lte: briefingDate },
+        status: { in: ["COMPLETED", "PARTIAL"] },
+      },
+      orderBy: { snapshotDate: "desc" },
       include: { items: { orderBy: { rank: "asc" } } },
     });
-    const trendingItems = todaySnapshot?.items ?? [];
+    const trendingItems = latestSnapshot?.items ?? [];
+    const trendingToArticleId = await ensureTrendingSourceArticles(trendingItems);
 
     const SOURCE_KIND: Record<TrendingSource, Candidate["sourceKind"]> = {
       HACKER_NEWS: "HN",
@@ -389,8 +448,14 @@ export async function runDailyBriefingPipeline(
           ? ((it.metadata as { starsToday?: number | null } | null)
               ?.starsToday ?? it.score ?? 0)
           : (it.score ?? 0);
+      const sourceArticleId = trendingToArticleId.get(it.id);
+      if (!sourceArticleId) {
+        throw new Error(
+          `Failed to map trending item to SourceArticle: ${it.source} ${it.externalId}`,
+        );
+      }
       return {
-        id: `trending:${it.id}`,
+        id: sourceArticleId,
         title: it.title,
         url: it.url,
         sourceName: trendingSourceLabel(it.source, it.subsource),
@@ -481,15 +546,42 @@ export async function runDailyBriefingPipeline(
     }
 
     const trendingItemById = new Map(
-      trendingItems.map((it) => [`trending:${it.id}`, it]),
-    );
-    const rssIdSet = new Set(
-      editorialArticles.map((a) => a.id),
+      trendingItems
+        .map((it) => {
+          const sourceArticleId = trendingToArticleId.get(it.id);
+          if (!sourceArticleId) return null;
+          return [
+            sourceArticleId,
+            {
+              source: it.source,
+              score: it.score,
+              commentCount: it.commentCount,
+              subsource: it.subsource,
+              starsToday:
+                it.source === "GITHUB"
+                  ? ((it.metadata as { starsToday?: number | null } | null)
+                      ?.starsToday ?? null)
+                  : null,
+            },
+          ] as const;
+        })
+        .filter(Boolean) as Array<
+        readonly [
+          string,
+          {
+            source: TrendingSource;
+            score: number | null;
+            commentCount: number | null;
+            subsource: string | null;
+            starsToday: number | null;
+          },
+        ]
+      >,
     );
 
     const stories = clusters.map((cluster) => ({
       articleId: cluster.representativeArticleId,
-      articleIds: cluster.articleIds.filter((id) => rssIdSet.has(id)),
+      articleIds: cluster.articleIds,
       reason: buildReason(cluster, trendingItemById),
       title: cluster.title,
       url: cluster.primaryUrl,
