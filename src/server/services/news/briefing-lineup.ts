@@ -88,9 +88,10 @@ function fillEditorialBucket(params: {
 }): { picked: ScoredCluster[]; titles: string[] } {
   const { primary, quota, fallbackPools, onFallbackCount } = params;
   const intraBucketFuzzy = params.intraBucketFuzzy ?? false;
-  let { picked, titles } = pickClustersWithDedupe(primary, quota, params.titles, {
+  const { picked, titles: pickedTitles } = pickClustersWithDedupe(primary, quota, params.titles, {
     intraBucketFuzzy,
   });
+  let titles = pickedTitles;
   let need = quota - picked.length;
   if (need > 0) {
     for (const pool of fallbackPools) {
@@ -236,7 +237,7 @@ export function assembleBriefingLineup(params: {
   titles = tcFill.titles;
 
   const hnIds = new Set(hnPicked.map((c) => c.representativeArticleId));
-  let hnList = [...hnPicked];
+  const hnList = [...hnPicked];
 
   const crossSourceTitlesForExtraHn = [
     ...ghPicked.map((c) => c.title),

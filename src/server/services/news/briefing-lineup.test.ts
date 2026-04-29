@@ -36,7 +36,7 @@ function mockCluster(
   };
 }
 
-test("pickClustersWithDedupe skips titles that match prior picks", () => {
+void test("pickClustersWithDedupe skips titles that match prior picks", () => {
   const ranked = [
     mockCluster("a", "Unique alpha"),
     mockCluster("b", "Unique beta"),
@@ -47,7 +47,7 @@ test("pickClustersWithDedupe skips titles that match prior picks", () => {
   assert.ok(titles.some((t) => titlesLikelySameStory(t, "Unique alpha")));
 });
 
-test("assembleBriefingLineup returns 14 clusters with full distinct pools", () => {
+void test("assembleBriefingLineup returns 14 clusters with full distinct pools", () => {
   const now = new Date();
   const mk = (prefix: string, n: number, kind: "GH" | "HN" | "RSS") =>
     Array.from({ length: n }, (_, i) => ({
@@ -87,7 +87,7 @@ test("assembleBriefingLineup returns 14 clusters with full distinct pools", () =
   }
 });
 
-test("assembleBriefingLineup caps GitHub at 3", () => {
+void test("assembleBriefingLineup caps GitHub at 3", () => {
   const now = new Date();
   const github = Array.from({ length: 20 }, (_, i) => ({
     id: `gh-${i}`,
@@ -136,7 +136,7 @@ test("assembleBriefingLineup caps GitHub at 3", () => {
   assert.equal(ghInLineup.length, BRIEFING_LINEUP_QUOTAS.github);
 });
 
-test("assembleBriefingLineup records shortfall when editorial pools are empty", () => {
+void test("assembleBriefingLineup records shortfall when editorial pools are empty", () => {
   const now = new Date();
   const github = Array.from({ length: 3 }, (_, i) => ({
     id: `gh-${i}`,
