@@ -79,3 +79,5 @@ A multi-stage [`Dockerfile`](Dockerfile) builds the Next.js `standalone` output.
 ## RSS sources
 
 Default feeds are seeded in [`prisma/seed.ts`](prisma/seed.ts) from [`src/server/data/default-feeds.ts`](src/server/data/default-feeds.ts). Add or disable rows in the `SourceFeed` table as needed.
+
+Run `npm test` for unit tests.

@@ -1,10 +1,10 @@
 import type { PrismaClient } from "../../../generated/prisma";
 
-/** Curated RSS feeds for the daily briefing pipeline (see project plan). */
 export const DEFAULT_FEEDS: {
   name: string;
   url: string;
   category: string | null;
+  enabled?: boolean;
 }[] = [
   {
     name: "Anthropic — Newsroom",
@@ -20,17 +20,24 @@ export const DEFAULT_FEEDS: {
     name: "Hacker News — Front page",
     url: "https://news.ycombinator.com/rss",
     category: "community",
+    enabled: false,
   },
   {
     name: "Hacker News — Newest",
     url: "https://hnrss.org/newest",
     category: "community",
+    enabled: false,
   },
-  { name: "DEV — tag ai", url: "https://dev.to/feed/tag/ai", category: "dev" },
+  {
+    name: "DEV — tag ai",
+    url: "https://dev.to/feed/tag/ai",
+    category: "dev",
+  },
   {
     name: "DEV — tag programming",
     url: "https://dev.to/feed/tag/programming",
     category: "dev",
+    enabled: false,
   },
   {
     name: "Google AI Blog",
@@ -62,6 +69,7 @@ export const DEFAULT_FEEDS: {
 export async function ensureDefaultFeeds(db: PrismaClient): Promise<void> {
   await Promise.all(
     DEFAULT_FEEDS.map(async (feed) => {
+      const enabled = feed.enabled ?? true;
       const existingByName = await db.sourceFeed.findFirst({
         where: { name: feed.name },
       });
@@ -72,7 +80,7 @@ export async function ensureDefaultFeeds(db: PrismaClient): Promise<void> {
           data: {
             url: feed.url,
             category: feed.category,
-            enabled: true,
+            enabled,
           },
         });
         return;
@@ -84,12 +92,12 @@ export async function ensureDefaultFeeds(db: PrismaClient): Promise<void> {
           name: feed.name,
           url: feed.url,
           category: feed.category,
-          enabled: true,
+          enabled,
         },
         update: {
           name: feed.name,
           category: feed.category,
-          enabled: true,
+          enabled,
         },
       });
     }),

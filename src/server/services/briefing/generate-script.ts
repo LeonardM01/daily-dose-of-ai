@@ -1,9 +1,9 @@
- import { GoogleGenerativeAI } from "@google/generative-ai";
- import { buildHumanizerPrompt } from "./humanizer";
+import { GoogleGenerativeAI } from "@google/generative-ai";
+import { buildHumanizerPrompt } from "./humanizer";
 
- const MODEL = "gemini-2.5-flash";
- const HUMANIZER_MODEL = "gemini-2.5-flash";
- const TTS_SYNC_LIMIT_BYTES = 5000;
+const MODEL = "gemini-2.5-flash";
+const HUMANIZER_MODEL = "gemini-2.5-flash";
+const TTS_SYNC_LIMIT_BYTES = 5000;
 
 export type StoryInput = {
   articleId: string;
@@ -22,7 +22,18 @@ export type StoryInput = {
   excerpt: string | null;
 };
 
-const TARGET_SCRIPT_MAX_CHARS = 14000;
+const TARGET_SCRIPT_MAX_CHARS = 15000;
+
+export const BRIEFING_TRANSCRIPT_STRUCTURE_RULES = `Story count: the input has exactly three sections — GitHub movers (3 items), Hacker News (4 items), then an AI editorial roundup (7 items: 3 Medium, 2 dev.to, 2 TechCrunch). Cover every item once, in that order. If an item is weak, still give it one tight sentence pair rather than skipping it.
+
+Structure:
+1) GitHub Movers — three repos only. Keep this segment to roughly the first 20% of the total runtime (fast, punchy). Still: one sentence what happened, one sentence why a dev cares per repo.
+2) What developers are reading — four Hacker News stories, same two-sentence shape.
+3) AI editorial roundup — seven stories in order: the three Medium pieces, then two dev.to, then two TechCrunch. Same two-sentence shape per story.
+
+Per-story word cap: about 55–70 words — punchy, not thorough.
+Total target: about 1,350 to 1,550 words (~9–11 minutes at 140 wpm). The plain transcript MUST stay under ${TARGET_SCRIPT_MAX_CHARS} characters total.`;
+
 type PromptStoryPayload = {
   title: string;
   url: string;
@@ -71,28 +82,27 @@ export async function generateBriefingScript(
     corroboratingCoverage: s.supportingLinks.slice(0, 5),
   }));
 
-  const transcriptPrompt = `You write scripts for a thorough daily tech/AI news audio briefing called "Daily Dose of AI".
+  const transcriptPrompt = `You write the script for "Daily Dose of AI", a short daily audio briefing for developers.
 Date for this episode: ${dateLabel}
 
-Write a single continuous script for the host to read aloud. Target length is 6.5 to 7.5 minutes when read at a moderate pace. Aim for roughly 1400 to 1800 words. The plain transcript MUST stay under ${TARGET_SCRIPT_MAX_CHARS} characters total.
+Voice: You are a knowledgeable dev friend catching the listener up over coffee. Contractions always. Short sentences. Asides welcome. First-person opinion allowed if directly supported by the source. Not a news anchor — a smart friend who actually read the stuff.
+
+Example of the target voice (do NOT copy — just match the register):
+"Okay so Anthropic dropped Claude 3.7 yesterday and honestly the headline stat is wild — 700 tokens a second on Sonnet. That's fast enough that streaming barely feels like streaming anymore. The thing I keep coming back to is the new extended thinking mode: it's not just more compute, it's a different kind of reasoning trace. If you're building agents, this changes the math on when to burn tokens."
+
+${BRIEFING_TRANSCRIPT_STRUCTURE_RULES}
 
 Rules:
-- Start with a 1-2 sentence welcome that includes the date.
-- Cover the stories in order of global importance.
-- Cover at least 12 stories when enough material is provided.
-- Spend 3-5 sentences on each major story, and 2-3 sentences on smaller but still relevant stories.
-- For each story: give context, what happened, and why it matters; mention the outlet or primary source by name.
-- If a story has corroborating coverage from multiple outlets, mention that briefly in one sentence, for example "covered by Anthropic and TechCrunch" or "discussed on Hacker News and reported by Anthropic."
-- Include brief transitions so the episode feels like a coherent morning briefing instead of a list.
-- Do not invent facts beyond the excerpts; if detail is missing, speak generally.
-- Prefer completeness over punchiness; do not end early if there are still important stories to cover.
-- Do not produce a short summary. This should feel like a full morning rundown with substantially more detail than a headline recap.
-- End with a brief sign-off.
+- Open with one casual sentence that includes the date. Not "Welcome to" — just dive in.
+- Cover stories in the order given. The list is grouped: GitHub first, then Hacker News, then Medium → dev.to → TechCrunch for the editorial block — do not reorder.
+- For each story: one sentence of what happened, one sentence of why a dev cares. Clip the rest.
+- Use the "note" field as context for why the story ranked — do not read it aloud.
+- Mention the source by name naturally ("Hacker News is buzzing about…", "Anthropic just posted…").
+- Contractions required. Avoid: utilize, leverage, delve, groundbreaking, revolutionary, robust, seamlessly, ecosystem, paradigm, showcase, facilitate, demonstrate, notably, it's worth noting, in conclusion.
+- No invented facts. If detail is missing, say less.
+- End with one casual sign-off sentence. No "thank you for listening" — just wrap it.
 - No stage directions, no bullet points, no markdown, no URLs spoken letter-by-letter.
-- Return ONLY the plain spoken transcript text.
-- Do not return JSON.
-- Do not return SSML.
-- Do not use markdown.
+- Return ONLY the plain spoken transcript text. No JSON. No SSML. No markdown.
 
 Stories JSON:
 ${JSON.stringify(payload)}`;
