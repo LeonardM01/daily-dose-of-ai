@@ -94,6 +94,24 @@ function overlapCount(a: string[], b: string[]): number {
   return [...new Set(a)].filter((token) => bSet.has(token)).length;
 }
 
+export function titlesLikelySameStory(titleA: string, titleB: string): boolean {
+  const a: ArticleForRank = {
+    id: "",
+    title: titleA,
+    url: "",
+    sourceName: "",
+    excerpt: null,
+  };
+  const b: ArticleForRank = {
+    id: "",
+    title: titleB,
+    url: "",
+    sourceName: "",
+    excerpt: null,
+  };
+  return shouldClusterTogether(a, b);
+}
+
 function shouldClusterTogether(a: ArticleForRank, b: ArticleForRank): boolean {
   const aNorm = normalizeTitle(a.title);
   const bNorm = normalizeTitle(b.title);

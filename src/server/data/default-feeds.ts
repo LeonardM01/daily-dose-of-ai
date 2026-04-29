@@ -1,15 +1,5 @@
 import type { PrismaClient } from "../../../generated/prisma";
 
-/**
- * Curated RSS feeds for the daily briefing pipeline.
- *
- * Source policy: the briefing's primary candidate pool comes from the
- * trending snapshot (HN top, Product Hunt, GitHub trending, Reddit). RSS
- * here supplements with low-volume, high-signal primary-source coverage
- * (official Claude/Google/YC posts). High-volume firehose feeds (dev.to,
- * Medium, HN Newest/Front, TechCrunch AI) are kept in this list with
- * `enabled: false` so they remain disabled across re-seeds.
- */
 export const DEFAULT_FEEDS: {
   name: string;
   url: string;
@@ -42,7 +32,6 @@ export const DEFAULT_FEEDS: {
     name: "DEV — tag ai",
     url: "https://dev.to/feed/tag/ai",
     category: "dev",
-    enabled: false,
   },
   {
     name: "DEV — tag programming",
@@ -59,13 +48,11 @@ export const DEFAULT_FEEDS: {
     name: "Medium — The Generator",
     url: "https://medium.com/feed/the-generator",
     category: "medium",
-    enabled: false,
   },
   {
     name: "Medium — Towards AI",
     url: "https://pub.towardsai.net/feed",
     category: "medium",
-    enabled: false,
   },
   {
     name: "Y Combinator Blog",
@@ -76,7 +63,6 @@ export const DEFAULT_FEEDS: {
     name: "TechCrunch — AI",
     url: "https://techcrunch.com/category/artificial-intelligence/feed/",
     category: "news",
-    enabled: false,
   },
 ];
 

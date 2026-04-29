@@ -14,9 +14,10 @@ import { storeBriefingAudio } from "~/server/services/briefing/store-audio";
 import { synthesizeChirpHd } from "~/server/services/briefing/synthesize-audio";
 import { ingestAllEnabledFeeds } from "~/server/services/news/ingest";
 import {
-  selectTopClusters,
+  assembleBriefingLineup,
+} from "~/server/services/news/briefing-lineup";
+import {
   type Candidate,
-  type CandidateSourceKind,
   type ScoredCluster,
 } from "~/server/services/news/score-rank";
 import { runTrendingSnapshot } from "~/server/services/trending/snapshot";
@@ -354,8 +355,6 @@ export async function runDailyBriefingPipeline(
           },
     });
 
-    // Refresh today's trending snapshot before consuming it (chains the
-    // standalone 23:00 UTC trending cron so the briefing always has fresh data).
     const trendingSnapshotResult = await runTrendingSnapshot();
     if (!trendingSnapshotResult.ok) {
       console.warn("[daily-briefing] trending snapshot refresh failed", {
@@ -369,27 +368,15 @@ export async function runDailyBriefingPipeline(
       console.warn("[ingest] feed errors", ingest.errors);
     }
 
-    // Curated RSS pool: last 48h from enabled feeds only.
-    // Firehose feeds (dev.to, Medium, HN RSS, TechCrunch) are disabled in
-    // default-feeds.ts; only low-volume primary-source feeds remain active.
     const since = new Date(Date.now() - 48 * 60 * 60 * 1000);
-    const curatedArticles = await db.sourceArticle.findMany({
-      where: {
-        OR: [{ publishedAt: { gte: since } }, { createdAt: { gte: since } }],
-        feed: { enabled: true },
-      },
-      orderBy: [{ publishedAt: "desc" }, { createdAt: "desc" }],
-      take: 200,
-    });
 
-    // Today's trending items (refreshed above).
     const todaySnapshot = await db.trendingSnapshot.findUnique({
       where: { snapshotDate: briefingDate },
       include: { items: { orderBy: { rank: "asc" } } },
     });
     const trendingItems = todaySnapshot?.items ?? [];
 
-    const SOURCE_KIND: Record<TrendingSource, CandidateSourceKind> = {
+    const SOURCE_KIND: Record<TrendingSource, Candidate["sourceKind"]> = {
       HACKER_NEWS: "HN",
       PRODUCT_HUNT: "PH",
       GITHUB: "GH",
@@ -397,8 +384,6 @@ export async function runDailyBriefingPipeline(
     };
 
     const trendingCandidates: Candidate[] = trendingItems.map((it) => {
-      // GitHub stores total star count in score (can be 50k+); use starsToday
-      // from metadata so engagement reflects daily momentum, not repo age.
       const engagement =
         it.source === "GITHUB"
           ? ((it.metadata as { starsToday?: number | null } | null)
@@ -416,21 +401,78 @@ export async function runDailyBriefingPipeline(
       };
     });
 
-    const rssCandidates: Candidate[] = curatedArticles.map((a) => ({
+    const githubCandidates = trendingCandidates.filter((c) => c.sourceKind === "GH");
+    const hackerNewsCandidates = trendingCandidates.filter(
+      (c) => c.sourceKind === "HN",
+    );
+
+    const editorialArticles = await db.sourceArticle.findMany({
+      where: {
+        OR: [{ publishedAt: { gte: since } }, { createdAt: { gte: since } }],
+        feed: {
+          enabled: true,
+          OR: [
+            { category: "medium" },
+            { category: "dev" },
+            {
+              url: { contains: "techcrunch", mode: "insensitive" },
+            },
+          ],
+        },
+      },
+      orderBy: [{ publishedAt: "desc" }, { createdAt: "desc" }],
+      take: 500,
+      include: { feed: true },
+    });
+
+    const toRssCandidate = (
+      a: (typeof editorialArticles)[number],
+    ): Candidate => ({
       id: a.id,
       title: a.title,
       url: a.url,
       sourceName: a.sourceName,
       excerpt: a.excerpt,
       publishedAt: a.publishedAt ?? a.createdAt,
-      sourceKind: "RSS" as const,
+      sourceKind: "RSS",
       engagement: 0,
-    }));
+    });
 
-    const clusters = selectTopClusters(
-      [...trendingCandidates, ...rssCandidates],
-      { topN: 12 },
+    const mediumArticles = editorialArticles.filter(
+      (a) => a.feed?.category === "medium",
     );
+    const devArticles = editorialArticles.filter(
+      (a) => a.feed?.category === "dev",
+    );
+    const techcrunchArticles = editorialArticles.filter((a) => {
+      const url = (a.feed?.url ?? "").toLowerCase();
+      const name = (a.feed?.name ?? "").toLowerCase();
+      return url.includes("techcrunch") || name.includes("techcrunch");
+    });
+
+    const lineup = assembleBriefingLineup({
+      github: githubCandidates,
+      hackerNews: hackerNewsCandidates,
+      medium: mediumArticles.map(toRssCandidate),
+      devto: devArticles.map(toRssCandidate),
+      techcrunch: techcrunchArticles.map(toRssCandidate),
+    });
+
+    if (Object.keys(lineup.meta.underfilled).length > 0) {
+      console.warn("[daily-briefing] lineup underfilled", lineup.meta.underfilled);
+    }
+    if (lineup.meta.editorialFallbackArticles > 0) {
+      console.warn("[daily-briefing] editorial fallback picks", {
+        count: lineup.meta.editorialFallbackArticles,
+      });
+    }
+    if (lineup.meta.extraHackerNews > 0) {
+      console.warn("[daily-briefing] extra Hacker News picks for lineup depth", {
+        count: lineup.meta.extraHackerNews,
+      });
+    }
+
+    const clusters: ScoredCluster[] = lineup.clusters;
 
     if (clusters.length === 0) {
       throw new Error(
@@ -441,11 +483,12 @@ export async function runDailyBriefingPipeline(
     const trendingItemById = new Map(
       trendingItems.map((it) => [`trending:${it.id}`, it]),
     );
-    const rssIdSet = new Set(rssCandidates.map((c) => c.id));
+    const rssIdSet = new Set(
+      editorialArticles.map((a) => a.id),
+    );
 
     const stories = clusters.map((cluster) => ({
       articleId: cluster.representativeArticleId,
-      // Only persist SourceArticle IDs — trending items have no SourceArticle row.
       articleIds: cluster.articleIds.filter((id) => rssIdSet.has(id)),
       reason: buildReason(cluster, trendingItemById),
       title: cluster.title,

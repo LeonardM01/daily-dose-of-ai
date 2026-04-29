@@ -19,6 +19,7 @@
     "lint:fix": "next lint --fix",
     "preview": "next build && next start",
     "start": "next start",
+    "test": "node --import tsx/esm --test src/server/services/news/briefing-lineup.test.ts src/server/services/briefing/generate-script-prompt.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

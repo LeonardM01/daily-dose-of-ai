@@ -14,7 +14,6 @@ export type Candidate = {
   excerpt: string | null;
   publishedAt: Date | null;
   sourceKind: CandidateSourceKind;
-  /** Raw engagement count (HN points, PH votes, GH stars-today, Reddit ups). RSS uses a baseline. */
   engagement: number;
 };
 
@@ -32,6 +31,8 @@ const SOURCE_TIER_WEIGHT: Record<CandidateSourceKind, number> = {
 
 const RSS_BASELINE_ENGAGEMENT = 80;
 const RECENCY_HALF_LIFE_HOURS = 12;
+
+const EDITORIAL_RECENCY_HALF_LIFE_HOURS = 18;
 
 export function scoreCandidate(
   candidate: Candidate,
@@ -52,15 +53,33 @@ export function scoreCandidate(
   return Math.log1p(engagement) * tier * recency;
 }
 
-export function selectTopClusters(
-  candidates: Candidate[],
-  options: { now?: Date; topN?: number } = {},
-): ScoredCluster[] {
-  const now = options.now ?? new Date();
-  const topN = options.topN ?? 12;
+export function scoreEditorialRssCandidate(
+  candidate: Candidate,
+  now: Date = new Date(),
+): number {
+  const ageHours = candidate.publishedAt
+    ? Math.max(
+        0,
+        (now.getTime() - candidate.publishedAt.getTime()) / 3_600_000,
+      )
+    : 48;
+  const recency = Math.pow(0.5, ageHours / EDITORIAL_RECENCY_HALF_LIFE_HOURS);
+  const excerptLen = (candidate.excerpt ?? "").length;
+  const quality = 1 + Math.min(0.45, Math.log1p(excerptLen) / 22);
+  return recency * quality;
+}
 
+function selectTopClustersScored(
+  candidates: Candidate[],
+  scoreFor: (c: Candidate, now: Date) => number,
+  now: Date,
+  topN: number,
+): ScoredCluster[] {
   const scored = candidates
-    .map((candidate) => ({ candidate, score: scoreCandidate(candidate, now) }))
+    .map((candidate) => ({
+      candidate,
+      score: scoreFor(candidate, now),
+    }))
     .sort((a, b) => b.score - a.score);
 
   const articlesForCluster: ArticleForRank[] = scored.map(({ candidate }) => ({
@@ -86,4 +105,55 @@ export function selectTopClusters(
     }))
     .sort((a, b) => b.score - a.score)
     .slice(0, topN);
+}
+
+export function rankTrendingCandidatesToClusters(
+  candidates: Candidate[],
+  options: { now?: Date } = {},
+): ScoredCluster[] {
+  const now = options.now ?? new Date();
+  const scored = candidates
+    .map((c) => ({ c, score: scoreCandidate(c, now) }))
+    .sort((a, b) => b.score - a.score);
+  return scored.map(({ c, score }) => ({
+    id: c.id,
+    articleIds: [c.id],
+    representativeArticleId: c.id,
+    title: c.title,
+    primaryUrl: c.url,
+    excerpt: c.excerpt,
+    sourceNames: [c.sourceName],
+    supportingLinks: [
+      {
+        articleId: c.id,
+        sourceName: c.sourceName,
+        title: c.title,
+        url: c.url,
+      },
+    ],
+    score,
+  }));
+}
+
+export function selectTopClusters(
+  candidates: Candidate[],
+  options: { now?: Date; topN?: number } = {},
+): ScoredCluster[] {
+  const now = options.now ?? new Date();
+  const topN = options.topN ?? 12;
+  return selectTopClustersScored(candidates, scoreCandidate, now, topN);
+}
+
+export function selectTopEditorialClusters(
+  candidates: Candidate[],
+  options: { now?: Date; topN?: number } = {},
+): ScoredCluster[] {
+  const now = options.now ?? new Date();
+  const topN = options.topN ?? 12;
+  return selectTopClustersScored(
+    candidates,
+    scoreEditorialRssCandidate,
+    now,
+    topN,
+  );
 }
