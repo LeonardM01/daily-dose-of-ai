@@ -1,5 +1,7 @@
 import { TextToSpeechClient } from "@google-cloud/text-to-speech";
 
+export const SPEAKING_RATE = 0.9;
+
 const VOICE_POOL = [
   "en-US-Chirp3-HD-Alnilam",
   "en-US-Chirp3-HD-Aoede",
@@ -59,7 +61,7 @@ export async function synthesizeChirpHd(
       },
       audioConfig: {
         audioEncoding: "MP3",
-        speakingRate: 1.0,
+        speakingRate: SPEAKING_RATE,
       },
     });
   } catch (error) {
@@ -114,7 +116,7 @@ async function synthesizeChunkedAudio(
         },
         audioConfig: {
           audioEncoding: "LINEAR16",
-          speakingRate: 1.0,
+          speakingRate: SPEAKING_RATE,
         },
       });
     } catch (error) {

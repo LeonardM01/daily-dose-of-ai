@@ -102,6 +102,7 @@ Rules:
 - No invented facts. If detail is missing, say less.
 - End with one casual sign-off sentence. No "thank you for listening" — just wrap it.
 - No stage directions, no bullet points, no markdown, no URLs spoken letter-by-letter.
+- Never put words in quotation marks. Rephrase to avoid quoting — the text-to-speech engine reads quote characters aloud as "open quotation" and "close quotation".
 - Return ONLY the plain spoken transcript text. No JSON. No SSML. No markdown.
 
 Stories JSON:
@@ -331,7 +332,9 @@ Requirements:
 - Specifically DO NOT use: <audio>, <voice>, <lang>, <emphasis>, <mark>, <par>, <seq>.
 - Use <break> sparingly at section transitions.
 - Use <prosody> only on short spans, not entire paragraphs.
-- Use <say-as> only where it clearly improves pronunciation.
+- NEVER use <say-as interpret-as="characters"> on project names, repository names, product names, or tech terms (ChatGPT, LangChain, LlamaIndex, GitHub, etc.). The TTS engine pronounces these correctly on its own. Reserve <say-as interpret-as="characters"> only for isolated single letters.
+- If a word needs a specific pronunciation, use <sub alias="..."> instead of <say-as interpret-as="characters">.
+- Remove ALL quotation marks (" “ ”) from the text content. Do not include any quotation mark characters — the TTS engine reads them aloud as "open quotation" and "close quotation". Rephrase if needed.
 
 Transcript:
 ${transcript}`;
@@ -396,6 +399,24 @@ function extractJsonObject(text: string): string | null {
   return text.slice(start, end + 1);
 }
 
+export function sanitizeSsmlForTts(ssml: string): string {
+  let result = ssml;
+
+  result = result.replace(
+    /<say-as\s+interpret-as=["']characters["']\s*>([\s\S]*?)<\/say-as>/gi,
+    (_match, content: string) => content.trim(),
+  );
+
+  result = result.replace(/>([^<]+)</g, (_match, text: string) => {
+    const cleaned = text
+      .replace(/&quot;/g, "")
+      .replace(/[“”"]/g, "");
+    return `>${cleaned}<`;
+  });
+
+  return result;
+}
+
 function resolveSsml(
   ssml: string | undefined,
   transcript: string,
@@ -441,11 +462,12 @@ function resolveSsml(
     }
   }
 
-  return { ssml: normalized, usedFallback: false };
+  return { ssml: sanitizeSsmlForTts(normalized), usedFallback: false };
 }
 
-function buildFallbackSsml(transcript: string): string {
-  const escaped = escapeXml(transcript);
+export function buildFallbackSsml(transcript: string): string {
+  const withoutQuotes = transcript.replace(/[“”"]/g, "");
+  const escaped = escapeXml(withoutQuotes);
   const paragraphs = escaped
     .split(/\n{2,}/)
     .map((chunk) => chunk.trim())
