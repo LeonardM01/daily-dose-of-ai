@@ -50,7 +50,7 @@ export default async function TrendingByDatePage({
     db.trendingSnapshot.findMany({
       where: { status: { in: ["COMPLETED", "PARTIAL"] } },
       orderBy: { snapshotDate: "desc" },
-      take: 14,
+      take: 365,
       select: {
         snapshotDate: true,
         _count: { select: { items: true } },

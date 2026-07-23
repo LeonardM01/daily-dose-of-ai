@@ -4,7 +4,7 @@ import { useMemo, useState, type ReactNode } from "react";
 
 import type { TrendingSource } from "../../../generated/prisma";
 import {
-  TrendingDateStrip,
+  TrendingArchive,
   TrendingSnapshotView,
   TrendingSourceTabs,
   type TrendingSnapshotShape,
@@ -45,7 +45,7 @@ export function TrendingSnapshotWithTabs({
     <div className="flex flex-col gap-6">
       {pageIntro}
       {archiveDates.length > 0 && (
-        <TrendingDateStrip dates={archiveDates} activeDate={activeDateIso} />
+        <TrendingArchive dates={archiveDates} activeDate={activeDateIso} />
       )}
       <TrendingSourceTabs
         counts={counts}

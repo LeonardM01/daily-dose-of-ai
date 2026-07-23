@@ -7,7 +7,7 @@ export function TrendingDashboard() {
   const { data: latest, isLoading: loadingLatest } =
     api.trending.latest.useQuery();
   const { data: dates, isLoading: loadingDates } =
-    api.trending.listDates.useQuery({ limit: 14 });
+    api.trending.listDates.useQuery({ limit: 365 });
 
   const archiveDates =
     !loadingDates && dates

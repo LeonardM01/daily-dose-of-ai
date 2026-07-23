@@ -58,7 +58,7 @@ export const trendingRouter = createTRPCRouter({
   listDates: publicProcedure
     .input(
       z
-        .object({ limit: z.number().min(1).max(60).optional() })
+        .object({ limit: z.number().min(1).max(400).optional() })
         .optional(),
     )
     .query(async ({ ctx, input }) => {
