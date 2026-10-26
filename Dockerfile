@@ -2,12 +2,12 @@
 # Build: docker build -t daily-dose-of-ai .
 # Run:  set DATABASE_URL, AUTH_*, APP_ENCRYPTION_KEY, etc. at runtime.
 
-FROM node:20-alpine AS deps
+FROM node:22-alpine AS deps
 WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm ci
 
-FROM node:20-alpine AS builder
+FROM node:22-alpine AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
@@ -17,7 +17,7 @@ ENV SKIP_ENV_VALIDATION=$SKIP_ENV_VALIDATION
 RUN npx prisma generate
 RUN npm run build
 
-FROM node:20-alpine AS runner
+FROM node:22-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
